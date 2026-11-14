@@ -12,7 +12,8 @@ Thursday post knows what is new. Each post is recorded as kind weekly/weekend.
 Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
   GREEN_API_MEDIA_URL   host for file uploads (shown in the Green-API console)
   SEND_GAP_SECONDS      pause between groups (default 90)
-  DIGEST_DATE           dry run only: pretend today is this date (YYYY-MM-DD)
+  DIGEST_DATE           dry/test run only: pretend today is this date (YYYY-MM-DD)
+  TEST_SEND=1           really send, but don't record it in the log
   DIGEST_KIND           force "weekly" or "weekend" regardless of the day
 
 Usage:
@@ -194,8 +195,9 @@ def mentioned_keys(rows):
 
 def main():
     dry = bool(os.environ.get("DRY_RUN"))
+    test = bool(os.environ.get("TEST_SEND"))   # real send, but not logged
     today = datetime.now(a.IST).date()
-    if dry and os.environ.get("DIGEST_DATE"):
+    if (dry or test) and os.environ.get("DIGEST_DATE"):
         today = datetime.strptime(os.environ["DIGEST_DATE"], "%Y-%m-%d").date()
         print(f"Previewing as if today were {today:%a %d %b %Y}")
     kind = kind_for(today)
@@ -217,7 +219,7 @@ def main():
     if dry:
         check_connection()
     key = f"{kind} {today.isoformat()}"
-    if any(r["kind"] == kind and r["key"] == key for r in rows):
+    if not test and any(r["kind"] == kind and r["key"] == key for r in rows):
         print(f"The {kind} post for {today} was already sent.")
         return
     if post is None:
@@ -233,7 +235,9 @@ def main():
         except requests.RequestException as e:
             print(f"image send failed for {g} ({e}); falling back to text")
             a.send(g, "*ANTAR YOG FOUNDATION*\n\n" + post["caption"])
-    if not dry:
+    if test:
+        print("TEST SEND - not recorded in sent-log.csv")
+    elif not dry:
         a.append_log(kind, key)
         for ev in post["included"]:
             a.append_log("included", ev["key"])

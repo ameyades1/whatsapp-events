@@ -10,8 +10,12 @@ on:
         description: "Print messages without sending"
         type: boolean
         default: false
+      test_send:
+        description: "Test: really send the post for digest_date now, without logging it"
+        type: boolean
+        default: false
       digest_date:
-        description: "Dry run only: preview as if today were this date (YYYY-MM-DD, a Sun or Thu)"
+        description: "Dry run / test send: act as if today were this date (YYYY-MM-DD, a Sun or Thu)"
         type: string
         default: ""
 
@@ -44,6 +48,7 @@ jobs:
           GREEN_API_MEDIA_URL: ${{ secrets.GREEN_API_MEDIA_URL }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           DIGEST_DATE: ${{ inputs.digest_date }}
+          TEST_SEND: ${{ inputs.test_send && '1' || '' }}
         run: python digest.py
 
       # Committing the log prevents duplicates and keeps the schedule alive
