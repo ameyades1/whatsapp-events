@@ -110,7 +110,7 @@ def compose(kind, events, d, mentioned=None):
     For "teaching", `mentioned` holds keys already sent, so the next unsent message is chosen.
     """
     if kind == "teaching":
-        item = t.pick(mentioned or set())
+        item = t.pick(mentioned or set(), d)
         return {"caption": t.format_post(item), "included": [item], "total": 1, "text_only": True} if item else None
     s, e = window(kind, d)
     main = by_start(x for x in events if x["start"] and s <= x["start"] <= e)

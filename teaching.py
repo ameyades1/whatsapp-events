@@ -1,10 +1,15 @@
 """Thursday teaching post: one message from wa-messages/, sent as text so WhatsApp
 shows the YouTube preview.
 
-Messages are taken in a fixed shuffled order (stable, so the plan is predictable
-and topics are mixed), skipping any already sent. Each send is logged as an
-"included" row keyed "teaching:<slug>".
+Which message goes out on a date:
+  1. teaching-schedule.csv (date, slug, occasion), planned around festivals, if it
+     lists that date and the message hasn't been sent yet;
+  2. otherwise the next message in a fixed shuffled order, skipping ones already
+     sent and ones the schedule reserves for a later date.
+Each send is logged as an "included" row keyed "teaching:<slug>".
 """
+
+import csv
 
 import random
 import re
@@ -12,7 +17,16 @@ from pathlib import Path
 
 BANK = Path(__file__).parent / "wa-messages"
 SUFFIX = "_whatsapp_en.txt"
+SCHEDULE = Path(__file__).parent / "teaching-schedule.csv"
 SEED = "antaryog-teachings-v1"   # change to reshuffle the order
+
+
+def load_schedule():
+    """{date_iso: (slug, occasion)}"""
+    if not SCHEDULE.exists():
+        return {}
+    with SCHEDULE.open(newline="", encoding="utf-8") as f:
+        return {r["date"]: (r["slug"], r.get("occasion", "")) for r in csv.DictReader(f)}
 
 
 def load_bank():
@@ -28,11 +42,20 @@ def load_bank():
     return items
 
 
-def pick(sent_keys, bank=None):
-    """Next message not yet sent, or None when the bank is used up."""
-    for item in bank if bank is not None else load_bank():
-        if item["key"] not in sent_keys:
-            return item
+def pick(sent_keys, d=None, bank=None, schedule=None):
+    """Message for date d (scheduled one if any), or None when nothing is left."""
+    bank = bank if bank is not None else load_bank()
+    schedule = schedule if schedule is not None else load_schedule()
+    by_slug = {x["slug"]: x for x in bank}
+    if d is not None and d.isoformat() in schedule:
+        slug, occasion = schedule[d.isoformat()]
+        item = by_slug.get(slug)
+        if item and item["key"] not in sent_keys:
+            return dict(item, occasion=occasion)
+    reserved = {slug for day, (slug, _) in schedule.items() if d is None or day > d.isoformat()}
+    for item in bank:
+        if item["key"] not in sent_keys and item["slug"] not in reserved:
+            return dict(item, occasion="")
     return None
 
 

@@ -146,22 +146,34 @@ def build(weeks=4):
     misses = sum(1 for ev in events if status(ev)[0] == "miss")
     planned = [s for s in slots if s[2]]
 
-    # ---- teaching bank ----
+    # ---- teaching schedule ----
     bank = tb.load_bank()
+    by_slug = {x["slug"]: x for x in bank}
+    schedule = tb.load_schedule()
     sent_t = {k for k in already if k.startswith("teaching:")}
-    queued = [x for x in bank if x["key"] not in sent_t]
-    planned_t = {p["included"][0]["key"]: d for d, k, p in slots if p and k == "teaching"}
-    sample_rows = []
-    for i, item in enumerate(queued[:8]):
-        when = f'{planned_t[item["key"]]:%a %d %b}' if item["key"] in planned_t else f"Queue #{i + 1}"
-        sample_rows.append(f"""
-            <details class="row"{" open" if i == 0 else ""}>
-              <summary><span class="date">{when}</span><span class="title">{html.escape(item["title"])}</span></summary>
+    today_iso = now.date().isoformat()
+    sched_rows = []
+    for day, (slug, occasion) in sorted(schedule.items()):
+        item = by_slug.get(slug)
+        if not item:
+            continue
+        d = datetime.fromisoformat(day).date()
+        done = item["key"] in sent_t
+        past = day < today_iso
+        occ = f'<span class="pill occ">{html.escape(occasion)}</span>' if occasion else ""
+        state = ' <span class="status sent">Sent</span>' if done else (' <span class="status muted">missed</span>' if past else "")
+        sched_rows.append(f"""
+            <details class="row sched{' past' if past or done else ''}">
+              <summary><span class="sdate">{d:%a %d %b %Y}</span>{occ}{state}<span class="stitle">{html.escape(item["title"])}</span></summary>
               {bubble(tb.format_post(item), "19:30", True)}
             </details>""")
-    teach_html = (f'<p class="note" style="margin:0 0 10px">{len(bank)} messages in the bank · {len(sent_t)} sent · '
-                  f'{len(queued)} left (about {len(queued) // 52} years {round(len(queued) % 52 / 4.3)} months at one a week). '
-                  f'Order is a fixed shuffle so topics are mixed.</p>' + "".join(sample_rows))
+    unscheduled = len(bank) - len({s for s, _ in schedule.values()})
+    last = max(schedule) if schedule else today_iso
+    teach_html = (f'<p class="note" style="margin:0 0 10px">{len(schedule)} Thursdays planned to {datetime.fromisoformat(last):%d %b %Y}, '
+                  f'{sum(1 for _, o in schedule.values() if o)} of them around festivals and special days · {len(sent_t)} sent · '
+                  f'{unscheduled} more messages in the bank for later. Dates come from <code>teaching-schedule.csv</code>.</p>'
+                  + "".join(sched_rows))
+
     days_label = " · ".join(f"{g.LABEL[k]}: {a.WEEKDAYS[w].title()} {g.SEND_TIME[k]}" for w, k in sorted(g.SEND_DAYS.items(), key=lambda x: (x[0] + 1) % 7))
 
     page = TEMPLATE.format(
@@ -239,6 +251,12 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
 .pill {{ display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }}
 .pill.reminder {{ background: var(--warn-soft); color: var(--warn); }}
 .pill.weekly {{ background: var(--brand-soft); color: var(--brand); }}
+.pill.occ {{ background: var(--blue-soft); color: var(--blue); white-space: normal; }}
+.sched summary {{ flex-wrap: wrap; row-gap: 2px; }}
+.sched .sdate {{ color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }}
+.sched .stitle {{ flex-basis: calc(100% - 24px); order: 5; }}
+.sched summary::after {{ order: 4; }}
+.row.past summary {{ opacity: .55; }}
 .pill.teaching {{ background: var(--warn-soft); color: var(--warn); }}
 .yt {{ background: rgba(0,0,0,.06); border-radius: 6px; overflow: hidden; margin: -2px 0 8px; }}
 .yt img {{ display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }}
@@ -304,7 +322,7 @@ footer {{ color: var(--muted); font-size: .8rem; margin-top: 24px; text-align: c
   </section>
 
   <section>
-    <h2>Teaching messages · next 8</h2>
+    <h2>Teaching video schedule · Thursdays 19:30</h2>
     {teach_html}
   </section>
 
