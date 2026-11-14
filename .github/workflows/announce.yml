@@ -2,7 +2,8 @@ name: Announce events on WhatsApp
 
 on:
   schedule:
-    - cron: "30 2 * * 1"   # 08:00 IST every Monday (weekly digest; keep in sync with DIGEST_DAY in build_site.py)
+    - cron: "30 4 * * 0"   # Sun 10:00 IST - week-ahead post
+    - cron: "0 14 * * 4"   # Thu 19:30 IST - weekend post (keep both in sync with SEND_DAYS in digest.py)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -10,7 +11,7 @@ on:
         type: boolean
         default: false
       digest_date:
-        description: "Dry run only: preview the digest as if sent on this date (YYYY-MM-DD)"
+        description: "Dry run only: preview as if today were this date (YYYY-MM-DD, a Sun or Thu)"
         type: string
         default: ""
 
@@ -34,7 +35,7 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Scrape and send weekly digest
+      - name: Scrape and send post
         env:
           GREEN_API_INSTANCE: ${{ secrets.GREEN_API_INSTANCE }}
           GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}

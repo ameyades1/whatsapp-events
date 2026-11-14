@@ -2,7 +2,7 @@ name: Build status page
 
 on:
   schedule:
-    - cron: "0 3 * * *"   # 08:30 IST daily, after the announce run
+    - cron: "30 0 * * *"   # 06:00 IST daily (also rebuilt after every send)
   push:
     branches: [main]
   workflow_run:
@@ -35,8 +35,6 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Build page
-        env:
-          SEND_DAYS: mon,wed,fri
         run: python build_site.py
 
       - uses: actions/upload-pages-artifact@v3

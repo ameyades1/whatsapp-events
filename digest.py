@@ -1,17 +1,23 @@
-"""Weekly digest: the fixed logo banner (assets/banner.png) + a caption listing the week's events.
+"""Twice-weekly WhatsApp posts: the fixed logo banner (assets/banner.png) + a caption.
 
-Runs once a week (default Monday). The digest covers events starting from the
-send day through the following Sunday, plus a "Coming up" line for the next
-event after that. Logged in sent-log.csv as kind "digest", keyed by week start.
+  Sunday 10:00 IST    "weekly"   full list of events starting Mon–Sun of the coming
+                                 week, plus a "Coming up" line for the next one after.
+  Thursday 19:30 IST  "weekend"  short list of events starting Fri–Mon, plus events
+                                 newly added to the site since they were last posted.
+                                 Skipped if there is nothing to say.
+
+Every event included in a post is recorded in sent-log.csv (kind "included"), so the
+Thursday post knows what is new. Each post is recorded as kind weekly/weekend.
 
 Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
-  GREEN_API_MEDIA_URL   host for file uploads (Green-API shows it in the console;
-                        defaults to GREEN_API_URL)
+  GREEN_API_MEDIA_URL   host for file uploads (shown in the Green-API console)
   SEND_GAP_SECONDS      pause between groups (default 90)
+  DIGEST_DATE           dry run only: pretend today is this date (YYYY-MM-DD)
+  DIGEST_KIND           force "weekly" or "weekend" regardless of the day
 
 Usage:
-  python digest.py                 send this week's digest
-  python digest.py --preview       print this week's caption without sending
+  python digest.py                 send today's post (if today is a send day)
+  python digest.py --preview       print today's caption without sending
 """
 
 import os
@@ -28,6 +34,13 @@ import announce as a
 ROOT = Path(__file__).parent
 BANNER = ROOT / "assets" / "banner.png"   # fixed image, made once from the site's logo
 CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
+
+# weekday -> post kind; keep in sync with the crons in .github/workflows/announce.yml
+SEND_DAYS = {6: "weekly", 3: "weekend"}
+SEND_TIME = {"weekly": "10:00", "weekend": "19:30"}
+LABEL = {"weekly": "Week ahead", "weekend": "This weekend"}
+NEW_LOOKAHEAD_DAYS = 21       # Thursday "newly added" covers events up to 3 weeks out
+MAX_NEW = 3
 
 
 # ---------- text ----------
@@ -54,7 +67,7 @@ def short_time(ev):
     return re.sub(r"\s+to\s+", "–", t).replace(" IST", "")
 
 
-def event_block(i, ev):
+def full_block(i, ev):
     meta = " · ".join(x for x in [short_date(ev), ev["details"].get("Duration", ""), short_mode(ev)] if x)
     lines = [f'*{i}. {ev["title"]}*', meta]
     if short_time(ev):
@@ -64,41 +77,83 @@ def event_block(i, ev):
     return "\n".join(lines)
 
 
-def week_range(start):
-    end = start + timedelta(days=6 - start.weekday())  # through Sunday
-    if start.month == end.month:
-        return f"{start.day}–{end.day} {end:%b}", end
-    return f"{start:%d %b} – {end:%d %b}", end
+def short_block(ev):
+    meta = " · ".join(x for x in [short_date(ev), short_mode(ev)] if x)
+    lines = [f'▫️ *{ev["title"]}*', meta]
+    if ev["link"]:
+        lines.append(f'👉 {ev["link"]}')
+    return "\n".join(lines)
 
 
-def digest_events(events, start):
-    _, end = week_range(start)
-    this_week = sorted((e for e in events if e["start"] and start <= e["start"] <= end), key=lambda e: e["start"])
-    later = sorted((e for e in events if e["start"] and e["start"] > end), key=lambda e: e["start"])
-    return this_week, later[:1]
+def date_range(s, e, weekday=False):
+    fmt = (lambda d, m: f"{d:%a} {d.day}" + (f" {d:%b}" if m else "")) if weekday else \
+          (lambda d, m: f"{d.day}" + (f" {d:%b}" if m else ""))
+    if s.month == e.month:
+        return f"{fmt(s, False)}–{fmt(e, True)}" if not weekday else f"{fmt(s, False)} – {fmt(e, True)}"
+    return f"{fmt(s, True)} – {fmt(e, True)}"
 
 
-def format_digest(events, start):
-    """Returns (caption, n_events_included, n_events_this_week) or None if nothing this week."""
-    this_week, coming = digest_events(events, start)
-    if not this_week:
+def window(kind, d):
+    """Date range of events a post on day d covers."""
+    if kind == "weekly":
+        return d + timedelta(1), d + timedelta(7)      # Sun -> Mon..Sun
+    return d + timedelta(1), d + timedelta(4)          # Thu -> Fri..Mon
+
+
+def by_start(evs):
+    return sorted(evs, key=lambda e: e["start"])
+
+
+def compose(kind, events, d, mentioned):
+    """Build the caption for a post of `kind` sent on date d.
+
+    mentioned: keys of events already included in earlier posts.
+    Returns dict(caption, included=[events in the caption], total) or None if nothing to send.
+    """
+    s, e = window(kind, d)
+    dated = [x for x in events if x["start"]]
+    main = by_start(x for x in dated if s <= x["start"] <= e)
+
+    if kind == "weekly":
+        head = [f"🗓️ *Week ahead · {date_range(s, e)}*", f"All events: {a.EVENTS_URL}"]
+        later = by_start(x for x in dated if x["start"] > e)
+        tail = ["", f'📌 *Coming up:* {later[0]["title"]} · {short_date(later[0])}'] if later else []
+        teaser = later[:1]   # named in "Coming up", so it isn't "newly announced" on Thursday
+        new = []
+    else:
+        head = [f"🌿 *This weekend · {date_range(s, e, weekday=True)}*", f"All events: {a.EVENTS_URL}"]
+        new = by_start(x for x in dated if e < x["start"] <= d + timedelta(NEW_LOOKAHEAD_DAYS)
+                       and x["key"] not in mentioned)[:MAX_NEW]
+        tail, teaser = [], []
+    if not main and not new:
         return None
-    label, _ = week_range(start)
-    head = [f"🗓️ *Events this week · {label}*", f"All events: {a.EVENTS_URL}"]
-    tail = []
-    if coming:
-        c = coming[0]
-        tail = ["", f'📌 *Coming up:* {c["title"]} · {short_date(c)}']
 
-    # Drop events from the end until the caption fits, pointing to the site for the rest.
-    for n in range(len(this_week), 0, -1):
-        blocks = [event_block(i + 1, e) for i, e in enumerate(this_week[:n])]
-        more = len(this_week) - n
-        extra = [f"➕ {more} more this week on the events page"] if more else []
-        text = "\n".join(head + [""] + "\n\n".join(blocks).split("\n") + ([""] + extra if extra else []) + tail)
-        if len(text) <= CAPTION_LIMIT:
-            return text, n, len(this_week)
-    return text, 1, len(this_week)
+    def render(n_main, n_new):
+        parts = list(head)
+        if main:
+            blocks = [full_block(i + 1, x) for i, x in enumerate(main[:n_main])] if kind == "weekly" \
+                else [short_block(x) for x in main[:n_main]]
+            parts += [""] + "\n\n".join(blocks).split("\n")
+            if n_main < len(main):
+                parts += ["", f"➕ {len(main) - n_main} more on the events page"]
+        if new[:n_new]:
+            parts += ["", "✨ *Newly announced*", ""] + "\n\n".join(short_block(x) for x in new[:n_new]).split("\n")
+        return "\n".join(parts + tail)
+
+    # Trim (newly-announced first, then main events from the end) until it fits.
+    n_main, n_new = len(main), len(new)
+    text = render(n_main, n_new)
+    while len(text) > CAPTION_LIMIT and (n_main > 1 or n_new > 0):
+        if n_new:
+            n_new -= 1
+        else:
+            n_main -= 1
+        text = render(n_main, n_new)
+    return {"caption": text, "included": main[:n_main] + new[:n_new] + teaser, "total": len(main) + len(new)}
+
+
+def kind_for(d):
+    return os.environ.get("DIGEST_KIND") or SEND_DAYS.get(d.weekday())
 
 
 # ---------- sending ----------
@@ -115,7 +170,7 @@ def send_image(chat_id, path, caption):
                           data={"chatId": chat_id, "caption": caption},
                           files={"file": (path.name, f, "image/png")})
     r.raise_for_status()
-    print(f"sent digest image to {chat_id}")
+    print(f"sent image post to {chat_id}")
 
 
 def check_connection():
@@ -133,45 +188,56 @@ def check_connection():
         print(f"Green-API check FAILED: {e.__class__.__name__} (status {getattr(e.response, 'status_code', '?')})")
 
 
-def main():
-    today = datetime.now(a.IST).date()
-    if os.environ.get("DRY_RUN") and os.environ.get("DIGEST_DATE"):
-        today = datetime.strptime(os.environ["DIGEST_DATE"], "%Y-%m-%d").date()  # preview a given week
-        print(f"Previewing the digest for {today:%a %d %b %Y}")
-    preview = "--preview" in sys.argv
-    events = a.fetch_events()
-    result = format_digest(events, today)
-    banner = BANNER
+def mentioned_keys(rows):
+    return {r["key"] for r in rows if r["kind"] == "included"}
 
-    if preview:
-        print(result[0] if result else "No events this week.")
+
+def main():
+    dry = bool(os.environ.get("DRY_RUN"))
+    today = datetime.now(a.IST).date()
+    if dry and os.environ.get("DIGEST_DATE"):
+        today = datetime.strptime(os.environ["DIGEST_DATE"], "%Y-%m-%d").date()
+        print(f"Previewing as if today were {today:%a %d %b %Y}")
+    kind = kind_for(today)
+    if not kind:
+        print(f"{today:%A} is not a send day ({', '.join(f'{a.WEEKDAYS[k].title()}={v}' for k, v in SEND_DAYS.items())}).")
+        return
+
+    events = a.fetch_events()
+    rows = a.read_log_rows()
+    post = compose(kind, events, today, mentioned_keys(rows))
+
+    if "--preview" in sys.argv:
+        print(post["caption"] if post else f"Nothing to send for the {kind} post.")
         return
 
     groups = [g.strip() for g in os.environ.get("WA_GROUP_IDS", "").split(",") if g.strip()]
     if not groups:
         sys.exit("WA_GROUP_IDS is empty - run announce.py --list-groups to find group ids.")
-    if os.environ.get("DRY_RUN"):
+    if dry:
         check_connection()
-    key = f"week of {today.isoformat()}"
-    if ("digest", key) in a.load_log():
-        print("Digest already sent this week.")
+    key = f"{kind} {today.isoformat()}"
+    if any(r["kind"] == kind and r["key"] == key for r in rows):
+        print(f"The {kind} post for {today} was already sent.")
         return
-    if result is None:
-        print("No events this week - nothing sent.")
+    if post is None:
+        print(f"Nothing to send for the {kind} post - skipped.")
         return
-    caption, n, total = result
+
     gap = int(os.environ.get("SEND_GAP_SECONDS", "90"))
     for i, g in enumerate(groups):
-        if i and not os.environ.get("DRY_RUN"):
+        if i and not dry:
             time.sleep(gap)  # space out groups so it doesn't look like a burst
         try:
-            send_image(g, banner, caption)
+            send_image(g, BANNER, post["caption"])
         except requests.RequestException as e:
             print(f"image send failed for {g} ({e}); falling back to text")
-            a.send(g, "*ANTAR YOG FOUNDATION*\n\n" + caption)
-    if not os.environ.get("DRY_RUN"):
-        a.append_log("digest", key)
-    print(f"Digest: {n} of {total} events this week, {len(caption)} chars")
+            a.send(g, "*ANTAR YOG FOUNDATION*\n\n" + post["caption"])
+    if not dry:
+        a.append_log(kind, key)
+        for ev in post["included"]:
+            a.append_log("included", ev["key"])
+    print(f"{kind}: {len(post['included'])} of {post['total']} events, {len(post['caption'])} chars")
 
 
 if __name__ == "__main__":
