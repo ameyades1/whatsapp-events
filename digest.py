@@ -66,13 +66,41 @@ def short_time(ev):
     return re.sub(r"\s+to\s+", "–", t).replace(" IST", "")
 
 
-def full_block(i, ev):
-    meta = " · ".join(x for x in [short_date(ev), ev["details"].get("Duration", ""), short_mode(ev)] if x)
-    lines = [f'*{i}. {ev["title"]}*', meta]
-    if short_time(ev):
-        lines.append(short_time(ev))
-    if ev["link"]:
-        lines.append(f'👉 {ev["link"]}')
+def nice_time(ev):
+    """'Morning 7 AM to 10 AM | Evening 6:45 PM to 9:45 PM IST' -> '7–10 AM or 6:45–9:45 PM'."""
+    t = ev["details"].get("Time", "")
+    t = re.sub(r"\b(Morning|Evening|Afternoon|Night)\s+", "", t, flags=re.I).replace(" IST", "")
+    t = re.sub(r"(\d)\.(\d\d)", r"\1:\2", t)
+    parts = []
+    for part in t.split("|"):
+        part = part.strip()
+        m = re.match(r"^(\S+)\s*(AM|PM)\s+to\s+(\S+)\s*(AM|PM)(.*)$", part, re.I)
+        if m:
+            a1, p1, b, p2, rest = m.groups()
+            part = (f"{a1}–{b} {p2}" if p1.upper() == p2.upper() else f"{a1} {p1}–{b} {p2}") + rest
+        parts.append(part)
+    return " or ".join(p for p in parts if p)
+
+
+def full_block(ev):
+    """Sunday format: title, how/where + when, time."""
+    d = ev["details"]
+    mode = d.get("Mode") or d.get("Venue") or ""
+    when = re.sub(r"\s*onwards", "", short_date(ev))
+    if "onwards" in ev["date_text"].lower():
+        when = f"from {when}"
+    dur = d.get("Duration", "").strip().lower()
+    if dur and dur != "1 day" and " – " not in when:
+        when = (when if when.startswith("from ") else f"from {when}") + f", {dur}"
+    if re.search(r"online", mode, re.I):
+        line = f"💻 Online · {when}"
+    elif mode:
+        line = f"📍 {re.sub(r'^(Offline\s+)?at\s+', '', mode, flags=re.I)} · {when}"
+    else:
+        line = f"📅 {when}"
+    lines = [f'*{ev["title"]}*', line]
+    if nice_time(ev):
+        lines.append(f"🕖 {nice_time(ev)}")
     return "\n".join(lines)
 
 
@@ -118,16 +146,18 @@ def compose(kind, events, d, mentioned=None):
         return None
 
     if kind == "weekly":
-        head = [f"🗓️ *Events this week · {date_range(s, e)}*", f"All events: {a.EVENTS_URL}"]
+        head = [f"🗓️ *Events this week · {date_range(s, e)}*"]
     else:
         head = [f"🌿 *This weekend · {date_range(s, e, weekday=True)}*", f"All events: {a.EVENTS_URL}"]
 
     def render(n):
-        blocks = [full_block(i + 1, x) for i, x in enumerate(main[:n])] if kind == "weekly" \
+        blocks = [full_block(x) for x in main[:n]] if kind == "weekly" \
             else [short_block(x) for x in main[:n]]
         parts = head + [""] + "\n\n".join(blocks).split("\n")
         if n < len(main):
             parts += ["", f"➕ {len(main) - n} more on the events page"]
+        if kind == "weekly":
+            parts += ["", "👉 Details & registration:", a.EVENTS_URL, "", "🙏 Everyone is welcome."]
         return "\n".join(parts)
 
     # Drop events from the end until the caption fits.
