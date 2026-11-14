@@ -82,7 +82,7 @@ def nice_time(ev):
     return " or ".join(p for p in parts if p)
 
 
-def full_block(ev):
+def full_block(ev, i=None):
     """Sunday format: title, how/where + when, time."""
     d = ev["details"]
     mode = d.get("Mode") or d.get("Venue") or ""
@@ -98,7 +98,7 @@ def full_block(ev):
         line = f"📍 {re.sub(r'^(Offline\s+)?at\s+', '', mode, flags=re.I)} · {when}"
     else:
         line = f"📅 {when}"
-    lines = [f'*{ev["title"]}*', line]
+    lines = [f'*{i}. {ev["title"]}*' if i else f'*{ev["title"]}*', line]
     if nice_time(ev):
         lines.append(f"🕖 {nice_time(ev)}")
     return "\n".join(lines)
@@ -151,7 +151,7 @@ def compose(kind, events, d, mentioned=None):
         head = [f"🌿 *This weekend · {date_range(s, e, weekday=True)}*", f"All events: {a.EVENTS_URL}"]
 
     def render(n):
-        blocks = [full_block(x) for x in main[:n]] if kind == "weekly" \
+        blocks = [full_block(x, i + 1) for i, x in enumerate(main[:n])] if kind == "weekly" \
             else [short_block(x) for x in main[:n]]
         parts = head + [""] + "\n\n".join(blocks).split("\n")
         if n < len(main):
