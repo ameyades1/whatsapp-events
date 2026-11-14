@@ -12,6 +12,7 @@ from pathlib import Path
 
 import announce as a
 import digest as g
+import teaching as tb
 
 OUT = Path(__file__).with_name("site") / "index.html"
 
@@ -50,8 +51,19 @@ def plan(events, rows, now, weeks):
     return slots
 
 
-def bubble(caption, tick=""):
-    return (f'<div class="chat"><div class="bubble"><img src="banner.png" alt="Antar Yog Foundation logo">'
+def yt_card(caption):
+    """Mimic WhatsApp's link preview for the first YouTube link in the text."""
+    m = re.search(r"(?:youtu\.be/|v=)([\w-]{11})", caption)
+    if not m:
+        return ""
+    title = re.search(r"^\*(?!ANTAR)(.+?)\*\s*$", caption, re.M)
+    return (f'<div class="yt"><img src="https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg" alt="" loading="lazy">'
+            f'<div class="yt-t"><b>{html.escape(title.group(1) if title else "YouTube video")}</b><span>youtube.com</span></div></div>')
+
+
+def bubble(caption, tick="", text_only=False):
+    top = yt_card(caption) if text_only else '<img src="banner.png" alt="Antar Yog Foundation logo">'
+    return (f'<div class="chat"><div class="bubble">{top}'
             f'{wa_to_html(caption)}{f"<span class=tick>{tick}</span>" if tick else ""}</div></div>')
 
 
@@ -102,7 +114,7 @@ def build(weeks=4):
         t = g.SEND_TIME[kind]
         next_html = f"""
         <div class="next-meta">{d:%A %d %B} · {t} IST · {kind_pill(kind)}<span class="sub">{len(post["caption"])}/1024 chars</span></div>
-        {bubble(post["caption"], t + " ✓✓")}"""
+        {bubble(post["caption"], t + " ✓✓", post.get("text_only"))}"""
     else:
         next_html = '<p class="empty">No events in the next few weeks.</p>'
 
@@ -113,10 +125,11 @@ def build(weeks=4):
             plan_rows.append(f"""
             <details class="row">
               <summary><span class="date">{d:%a %d %b}</span>{kind_pill(kind)}<span class="title">{html.escape(titles)}</span></summary>
-              {bubble(post["caption"], g.SEND_TIME[kind])}
+              {bubble(post["caption"], g.SEND_TIME[kind], post.get("text_only"))}
             </details>""")
         else:
-            plan_rows.append(f'<div class="row idle"><span class="date">{d:%a %d %b}</span>{kind_pill(kind)}<span class="title">— nothing new, skipped —</span></div>')
+            why = "message bank used up" if kind == "teaching" else "no events, skipped"
+            plan_rows.append(f'<div class="row idle"><span class="date">{d:%a %d %b}</span>{kind_pill(kind)}<span class="title">— {why} —</span></div>')
 
     ev_rows = []
     for ev in sorted(events, key=lambda e: (e["start"] is None, e["start"] or now.date())):
@@ -132,6 +145,23 @@ def build(weeks=4):
     ]
     misses = sum(1 for ev in events if status(ev)[0] == "miss")
     planned = [s for s in slots if s[2]]
+
+    # ---- teaching bank ----
+    bank = tb.load_bank()
+    sent_t = {k for k in already if k.startswith("teaching:")}
+    queued = [x for x in bank if x["key"] not in sent_t]
+    planned_t = {p["included"][0]["key"]: d for d, k, p in slots if p and k == "teaching"}
+    sample_rows = []
+    for i, item in enumerate(queued[:8]):
+        when = f'{planned_t[item["key"]]:%a %d %b}' if item["key"] in planned_t else f"Queue #{i + 1}"
+        sample_rows.append(f"""
+            <details class="row"{" open" if i == 0 else ""}>
+              <summary><span class="date">{when}</span><span class="title">{html.escape(item["title"])}</span></summary>
+              {bubble(tb.format_post(item), "19:30", True)}
+            </details>""")
+    teach_html = (f'<p class="note" style="margin:0 0 10px">{len(bank)} messages in the bank · {len(sent_t)} sent · '
+                  f'{len(queued)} left (about {len(queued) // 52} years {round(len(queued) % 52 / 4.3)} months at one a week). '
+                  f'Order is a fixed shuffle so topics are mixed.</p>' + "".join(sample_rows))
     days_label = " · ".join(f"{g.LABEL[k]}: {a.WEEKDAYS[w].title()} {g.SEND_TIME[k]}" for w, k in sorted(g.SEND_DAYS.items(), key=lambda x: (x[0] + 1) % 7))
 
     page = TEMPLATE.format(
@@ -149,6 +179,7 @@ def build(weeks=4):
         ev_rows="".join(ev_rows) or '<tr><td colspan="3" class="empty">No events found.</td></tr>',
         hist_rows="".join(hist_rows) or '<tr><td colspan="3" class="empty">Nothing sent yet.</td></tr>',
         source=a.EVENTS_URL,
+        teach_html=teach_html,
     )
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(page, encoding="utf-8")
@@ -208,6 +239,11 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
 .pill {{ display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }}
 .pill.reminder {{ background: var(--warn-soft); color: var(--warn); }}
 .pill.weekly {{ background: var(--brand-soft); color: var(--brand); }}
+.pill.teaching {{ background: var(--warn-soft); color: var(--warn); }}
+.yt {{ background: rgba(0,0,0,.06); border-radius: 6px; overflow: hidden; margin: -2px 0 8px; }}
+.yt img {{ display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }}
+.yt-t {{ padding: 6px 8px; font-size: 13px; line-height: 1.3; }}
+.yt-t span {{ display: block; opacity: .6; font-size: 12px; margin-top: 2px; }}
 .pill.weekend {{ background: var(--ok-soft); color: var(--ok); }}
 .pill.digest {{ background: var(--brand-soft); color: var(--brand); }}
 .pill.announce {{ background: var(--blue-soft); color: var(--blue); }}
@@ -265,6 +301,11 @@ footer {{ color: var(--muted); font-size: .8rem; margin-top: 24px; text-align: c
     <h2>Planned schedule · next {weeks} weeks</h2>
     {plan_rows}
     <p class="note">Plan is based on the events page right now. New events added to the site will change it. Tap a row to see the message.</p>
+  </section>
+
+  <section>
+    <h2>Teaching messages · next 8</h2>
+    {teach_html}
   </section>
 
   <section>

@@ -1,8 +1,9 @@
 """Twice-weekly WhatsApp posts: the fixed logo banner (assets/banner.png) + a caption.
 
   Sunday 10:00 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
-  Thursday 19:30 IST  "weekend"  short list of events starting Fri–Mon.
-                                 Skipped if there are none.
+  Thursday 19:30 IST  "teaching" one message from wa-messages/ (see teaching.py),
+                                 sent as text so the YouTube preview shows.
+  ("weekend", a short Fri–Mon events list, is still available via DIGEST_KIND.)
 
 Each post is recorded in sent-log.csv (kind weekly/weekend), plus one "included"
 row per event it listed.
@@ -29,15 +30,16 @@ from pathlib import Path
 import requests
 
 import announce as a
+import teaching as t
 
 ROOT = Path(__file__).parent
 BANNER = ROOT / "assets" / "banner.png"   # fixed image, made once from the site's logo
 CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
 
 # weekday -> post kind; keep in sync with the crons in .github/workflows/announce.yml
-SEND_DAYS = {6: "weekly", 3: "weekend"}
-SEND_TIME = {"weekly": "10:00", "weekend": "19:30"}
-LABEL = {"weekly": "Events this week", "weekend": "This weekend"}
+SEND_DAYS = {6: "weekly", 3: "teaching"}
+SEND_TIME = {"weekly": "10:00", "weekend": "19:30", "teaching": "19:30"}
+LABEL = {"weekly": "Events this week", "weekend": "This weekend", "teaching": "Teaching"}
 
 
 # ---------- text ----------
@@ -105,8 +107,11 @@ def compose(kind, events, d, mentioned=None):
     """Build the caption for a post of `kind` sent on date d.
 
     Returns dict(caption, included=[events in the caption], total) or None if nothing to send.
-    (`mentioned` is unused; kept so older callers keep working.)
+    For "teaching", `mentioned` holds keys already sent, so the next unsent message is chosen.
     """
+    if kind == "teaching":
+        item = t.pick(mentioned or set())
+        return {"caption": t.format_post(item), "included": [item], "total": 1, "text_only": True} if item else None
     s, e = window(kind, d)
     main = by_start(x for x in events if x["start"] and s <= x["start"] <= e)
     if not main:
@@ -211,6 +216,9 @@ def main():
     for i, g in enumerate(groups):
         if i and not dry:
             time.sleep(gap)  # space out groups so it doesn't look like a burst
+        if post.get("text_only"):
+            a.send(g, post["caption"])   # text, so WhatsApp shows the YouTube preview
+            continue
         try:
             send_image(g, BANNER, post["caption"])
         except requests.RequestException as e:
