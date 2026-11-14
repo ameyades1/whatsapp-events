@@ -4,6 +4,7 @@ Usage: python build_site.py [--weeks 4]
 """
 
 import html
+import shutil
 import re
 import sys
 from datetime import datetime, timedelta
@@ -41,9 +42,8 @@ def plan(events, rows, now, weeks):
     slots = []
     while d <= today + timedelta(weeks=weeks):
         res = g.format_digest(events, d)
-        name = f"banner-{d:%Y%m%d}.png"
+        name = "banner.png"
         if res:
-            g.make_banner(d, OUT.parent / name)
             slots.append((d, res[0], res[1], res[2], name))
         else:
             slots.append((d, None, 0, 0, name))
@@ -66,8 +66,7 @@ def build(weeks=4):
         events, error = [], str(e) or e.__class__.__name__
 
     OUT.parent.mkdir(exist_ok=True)
-    for old in OUT.parent.glob("banner-*.png"):
-        old.unlink()
+    shutil.copy(g.BANNER, OUT.parent / "banner.png")
     slots = plan(events, rows, now, weeks)
     first = slots[0][0] if slots else now.date()
     horizon = slots[-1][0] + timedelta(days=6) if slots else now.date()

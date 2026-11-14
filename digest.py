@@ -1,4 +1,4 @@
-"""Weekly digest: one image (logo banner) + caption listing the week's events.
+"""Weekly digest: the fixed logo banner (assets/banner.png) + a caption listing the week's events.
 
 Runs once a week (default Monday). The digest covers events starting from the
 send day through the following Sunday, plus a "Coming up" line for the next
@@ -11,7 +11,7 @@ Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
 
 Usage:
   python digest.py                 send this week's digest
-  python digest.py --preview       write banner + caption to site/ without sending
+  python digest.py --preview       print this week's caption without sending
 """
 
 import os
@@ -22,16 +22,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
 
 import announce as a
 
 ROOT = Path(__file__).parent
-LOGO = ROOT / "assets" / "logo.png"
-FONT = ROOT / "assets" / "CormorantGaramond.ttf"
+BANNER = ROOT / "assets" / "banner.png"   # fixed image, made once from the site's logo
 CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
-BROWN = (110, 62, 40)
-GOLD = (233, 176, 0)
 
 
 # ---------- text ----------
@@ -105,44 +101,6 @@ def format_digest(events, start):
     return text, 1, len(this_week)
 
 
-# ---------- banner ----------
-
-def font(size, weight=600):
-    try:
-        f = ImageFont.truetype(str(FONT), size)
-        try:
-            f.set_variation_by_axes([weight])
-        except Exception:
-            pass
-        return f
-    except OSError:
-        return ImageFont.truetype("DejaVuSerif-Bold.ttf", int(size * 0.8))
-
-
-def make_banner(start, path):
-    W, H = 1200, 630
-    img = Image.new("RGB", (W, H), (255, 255, 255))
-    d = ImageDraw.Draw(img)
-    d.rectangle([0, H - 14, W, H], fill=GOLD)
-
-    logo = Image.open(LOGO).convert("RGBA")
-    lw = 860
-    logo = logo.resize((lw, round(logo.height * lw / logo.width)), Image.LANCZOS)
-    img.paste(logo, ((W - lw) // 2, 120), logo)
-
-    label, _ = week_range(start)
-    y = 120 + logo.height + 70
-    d.line([(W // 2 - 60, y - 30), (W // 2 + 60, y - 30)], fill=GOLD, width=3)
-    for text, size, weight in [("Events this week", 54, 600), (label, 44, 500)]:
-        f = font(size, weight)
-        w = d.textlength(text, font=f)
-        d.text(((W - w) / 2, y), text, font=f, fill=BROWN)
-        y += size + 16
-    path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(path, optimize=True)
-    return path
-
-
 # ---------- sending ----------
 
 def send_image(chat_id, path, caption):
@@ -165,10 +123,9 @@ def main():
     preview = "--preview" in sys.argv
     events = a.fetch_events()
     result = format_digest(events, today)
-    banner = ROOT / "site" / "banner.png"
+    banner = BANNER
 
     if preview:
-        make_banner(today, banner)
         print(result[0] if result else "No events this week.")
         return
 
@@ -183,7 +140,6 @@ def main():
         print("No events this week - nothing sent.")
         return
     caption, n, total = result
-    make_banner(today, banner)
     gap = int(os.environ.get("SEND_GAP_SECONDS", "90"))
     for i, g in enumerate(groups):
         if i and not os.environ.get("DRY_RUN"):
