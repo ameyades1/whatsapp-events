@@ -1,16 +1,16 @@
-"""Build the status page (site/index.html) using the same logic announce.py sends with.
+"""Build the status page (site/index.html) using the same logic digest.py sends with.
 
 Usage: python build_site.py [--weeks 4]
 """
 
 import html
-import json
 import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import announce as a
+import digest as g
 
 OUT = Path(__file__).with_name("site") / "index.html"
 SLOT_TIME = "08:00 IST"
@@ -28,91 +28,95 @@ def wa_to_html(text):
     return "<br>".join(out)
 
 
-def plan(events, sent, rows, now, weeks):
-    """Simulate the coming send slots. Returns list of (date, event|None, kind, text)."""
+DIGEST_DAY = 0  # Monday; must match the cron in announce.yml
+
+
+def plan(events, rows, now, weeks):
+    """Upcoming digest days. Returns list of (date, caption|None, n_included, n_total, banner_name)."""
     today = now.date()
-    days = a.send_days()
-    sent = set(sent)
-    ran_today = any(r["sent_at_ist"].startswith(today.isoformat()) for r in rows)
-    # Today's slot counts only if it hasn't run yet (runs may start late, so allow until noon).
-    d = today if (today.weekday() in days and not ran_today and now.hour < 12) else today + timedelta(1)
+    sent_weeks = {r["key"] for r in rows if r["kind"] == "digest"}
+    d = today
+    if d.weekday() != DIGEST_DAY or f"week of {d.isoformat()}" in sent_weeks or now.hour >= 12:
+        d += timedelta(days=(DIGEST_DAY - d.weekday() - 1) % 7 + 1)
     slots = []
     while d <= today + timedelta(weeks=weeks):
-        if d.weekday() in days:
-            choice = a.pick(events, sent, d)
-            if choice:
-                ev, kind, _ = choice
-                sent.update((k, ev["key"]) for k in a.log_kinds(kind))
-                slots.append((d, ev, kind, a.format_message(ev, reminder=kind == "reminder", today=d)))
-            else:
-                slots.append((d, None, None, None))
-        d += timedelta(1)
+        res = g.format_digest(events, d)
+        name = f"banner-{d:%Y%m%d}.png"
+        if res:
+            g.make_banner(d, OUT.parent / name)
+            slots.append((d, res[0], res[1], res[2], name))
+        else:
+            slots.append((d, None, 0, 0, name))
+        d += timedelta(weeks=1)
     return slots
+
+
+def bubble(caption, banner_name, tick=""):
+    return (f'<div class="chat"><div class="bubble"><img src="{banner_name}" alt="Antar Yog Foundation · Events this week">'
+            f'{wa_to_html(caption)}{f"<span class=tick>{tick}</span>" if tick else ""}</div></div>')
 
 
 def build(weeks=4):
     now = datetime.now(a.IST)
     rows = a.read_log_rows()
-    sent = a.load_log()
     error = None
     try:
         events = a.fetch_events()
     except (Exception, SystemExit) as e:  # still publish a page that shows the problem
         events, error = [], str(e) or e.__class__.__name__
 
-    slots = plan(events, sent, rows, now, weeks)
-    horizon = now.date() + timedelta(weeks=weeks)
-    planned = {}
-    for d, ev, kind, _ in slots:
-        if ev:
-            planned.setdefault(ev["key"], []).append((d, kind))
+    OUT.parent.mkdir(exist_ok=True)
+    for old in OUT.parent.glob("banner-*.png"):
+        old.unlink()
+    slots = plan(events, rows, now, weeks)
+    first = slots[0][0] if slots else now.date()
+    horizon = slots[-1][0] + timedelta(days=6) if slots else now.date()
+
+    included = {}
+    for d, cap, n, total, _ in slots:
+        if cap:
+            this_week, _ = g.digest_events(events, d)
+            for i, ev in enumerate(this_week):
+                included[ev["key"]] = (d, i < n)
 
     def status(ev):
-        key = ev["key"]
-        if ("reminder", key) in sent:
-            return "sent", "Reminder sent"
-        if key in planned:
-            parts = [f'{"Reminder" if k == "reminder" else "Announce"} {d:%a %d %b}' for d, k in planned[key]]
-            if ("announce", key) in sent:
-                parts.insert(0, "Announced")
-            return "planned", " · ".join(parts)
-        if ("announce", key) in sent:
-            return "sent", "Announced"
         if ev["start"] is None:
             return "warn", "Date not understood"
+        if ev["key"] in included:
+            d, full = included[ev["key"]]
+            return ("planned", f"In digest {d:%a %d %b}") if full else ("warn", f"Digest {d:%a %d %b} (as \"+ more\")")
         if ev["start"] < now.date():
             return "muted", "Already started"
+        if ev["start"] < first:
+            return "miss", "Starts before next digest — skipped"
         if ev["start"] > horizon:
             return "muted", "Later"
-        return "miss", "No slot — will be skipped"
+        return "miss", "Not included"
 
-    next_slot = next(((d, ev, kind, text) for d, ev, kind, text in slots if ev), None)
-    days_label = "/".join(a.WEEKDAYS[i].title() for i in sorted(a.send_days()))
+    days_label = a.WEEKDAYS[DIGEST_DAY].title()
 
     # ---- sections ----
-    if error:
-        banner = f'<div class="banner bad">⚠️ Could not read the events page: {html.escape(error)}</div>'
-    else:
-        banner = ""
+    banner = f'<div class="banner bad">⚠️ Could not read the events page: {html.escape(error)}</div>' if error else ""
 
-    if next_slot:
-        d, ev, kind, text = next_slot
+    nxt = next((s for s in slots if s[1]), None)
+    if nxt:
+        d, cap, n, total, name = nxt
         next_html = f"""
-        <div class="next-meta">{d:%A %d %B} · {SLOT_TIME} · <span class="pill {kind}">{"Reminder" if kind == "reminder" else "Announcement"}</span></div>
-        <div class="chat"><div class="bubble">{wa_to_html(text)}<span class="tick">{SLOT_TIME[:5]} ✓✓</span></div></div>"""
+        <div class="next-meta">{d:%A %d %B} · {SLOT_TIME} · <span class="pill digest">Weekly digest · {total} event{"s" if total != 1 else ""}</span><span class="sub">{len(cap)}/1024 chars</span></div>
+        {bubble(cap, name, SLOT_TIME[:5] + " ✓✓")}"""
     else:
-        next_html = '<p class="empty">Nothing planned in the next few weeks.</p>'
+        next_html = '<p class="empty">No events in the next few weeks.</p>'
 
     plan_rows = []
-    for d, ev, kind, text in slots:
-        if ev:
+    for d, cap, n, total, name in slots:
+        if cap:
             plan_rows.append(f"""
             <details class="row">
-              <summary><span class="date">{d:%a %d %b}</span><span class="pill {kind}">{"Reminder" if kind == "reminder" else "Announce"}</span><span class="title">{html.escape(ev["title"])}</span></summary>
-              <div class="chat"><div class="bubble">{wa_to_html(text)}</div></div>
+              <summary><span class="date">{d:%a %d %b}</span><span class="pill digest">{total} event{"s" if total != 1 else ""}</span><span class="title">{html.escape(", ".join(e["title"] for e in g.digest_events(events, d)[0]))}</span></summary>
+              {bubble(cap, name)}
             </details>""")
         else:
-            plan_rows.append(f'<div class="row idle"><span class="date">{d:%a %d %b}</span><span class="title">— nothing to send —</span></div>')
+            plan_rows.append(f'<div class="row idle"><span class="date">{d:%a %d %b}</span><span class="title">— no events, nothing sent —</span></div>')
 
     ev_rows = []
     for ev in sorted(events, key=lambda e: (e["start"] is None, e["start"] or now.date())):
@@ -122,11 +126,11 @@ def build(weeks=4):
         ev_rows.append(f'<tr><td>{link}<div class="sub">{html.escape(ev["date_text"])}</div></td><td class="nowrap">{start}</td><td><span class="status {cls}">{label}</span></td></tr>')
 
     hist_rows = [
-        f'<tr><td class="nowrap">{html.escape(r["sent_at_ist"])}</td><td><span class="pill {r["kind"]}">{"Reminder" if r["kind"] == "reminder" else "Announce"}</span></td><td>{html.escape(r["key"].split(" | ")[0])}</td></tr>'
+        f'<tr><td class="nowrap">{html.escape(r["sent_at_ist"])}</td><td><span class="pill {r["kind"]}">{r["kind"].title()}</span></td><td>{html.escape(r["key"].split(" | ")[0])}</td></tr>'
         for r in reversed(rows)
-        if not (r["kind"] == "announce" and any(x["kind"] == "reminder" and x["key"] == r["key"] and x["sent_at_ist"] == r["sent_at_ist"] for x in rows))
     ]
     misses = sum(1 for ev in events if status(ev)[0] == "miss")
+    planned = [s for s in slots if s[1]]
 
     page = TEMPLATE.format(
         updated=f"{now:%a %d %b %Y, %H:%M} IST",
@@ -134,7 +138,7 @@ def build(weeks=4):
         banner=banner,
         days=days_label,
         n_events=len(events),
-        n_planned=sum(1 for _, ev, _, _ in slots if ev),
+        n_planned=len(planned),
         n_miss=misses,
         miss_cls="miss" if misses else "",
         next_html=next_html,
@@ -146,7 +150,7 @@ def build(weeks=4):
     )
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(page, encoding="utf-8")
-    print(f"Wrote {OUT} ({len(events)} events, {len(planned)} planned, {misses} skipped)")
+    print(f"Wrote {OUT} ({len(events)} events, {len(planned)} digests planned, {misses} skipped)")
 
 
 TEMPLATE = """<!doctype html>
@@ -197,9 +201,11 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
   max-width: 520px; font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; box-shadow: 0 1px .5px rgba(0,0,0,.13); }}
 .bubble a {{ color: #027eb5; }}
 @media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) .bubble a {{ color: #53bdeb; }} }}
+.bubble img {{ display: block; width: 100%; border-radius: 6px; margin: -2px 0 8px; }}
 .tick {{ display: block; text-align: right; font-size: 11px; opacity: .6; margin-top: 2px; }}
 .pill {{ display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }}
 .pill.reminder {{ background: var(--warn-soft); color: var(--warn); }}
+.pill.digest {{ background: var(--brand-soft); color: var(--brand); }}
 .pill.announce {{ background: var(--blue-soft); color: var(--blue); }}
 .row {{ border-top: 1px solid var(--line); }}
 .row:first-of-type {{ border-top: 0; }}
@@ -211,6 +217,7 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
 .row.idle {{ color: var(--muted); cursor: default; }}
 .date {{ width: 84px; flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; }}
 .title {{ min-width: 0; }}
+.row summary .title {{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 table {{ width: 100%; border-collapse: collapse; }}
 td {{ padding: 10px 6px; border-top: 1px solid var(--line); vertical-align: top; }}
 tr:first-child td {{ border-top: 0; }}
@@ -236,12 +243,12 @@ footer {{ color: var(--muted); font-size: .8rem; margin-top: 24px; text-align: c
 <div class="wrap">
   <header>
     <h1>Antar Yog <span>Event Announcer</span></h1>
-    <div class="meta"><span>Updated {updated}</span>{health}<span>Sends {days} at 08:00 IST</span></div>
+    <div class="meta"><span>Updated {updated}</span>{health}<span>Weekly digest every {days}, 08:00 IST</span></div>
   </header>
   {banner}
   <div class="stats">
     <div class="stat"><b>{n_events}</b><span>upcoming events</span></div>
-    <div class="stat"><b>{n_planned}</b><span>messages planned</span></div>
+    <div class="stat"><b>{n_planned}</b><span>digests planned</span></div>
     <div class="stat {miss_cls}"><b>{n_miss}</b><span>events skipped</span></div>
   </div>
 
