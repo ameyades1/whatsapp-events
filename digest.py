@@ -1,7 +1,6 @@
 """Twice-weekly WhatsApp posts: the fixed logo banner (assets/banner.png) + a caption.
 
-  Sunday 10:00 IST    "weekly"   full list of events starting Mon–Sun of the coming
-                                 week, plus a "Coming up" line for the next one after.
+  Sunday 10:00 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
   Thursday 19:30 IST  "weekend"  short list of events starting Fri–Mon, plus events
                                  newly added to the site since they were last posted.
                                  Skipped if there is nothing to say.
@@ -117,15 +116,11 @@ def compose(kind, events, d, mentioned):
 
     if kind == "weekly":
         head = [f"🗓️ *Events this week · {date_range(s, e)}*", f"All events: {a.EVENTS_URL}"]
-        later = by_start(x for x in dated if x["start"] > e)
-        tail = ["", f'📌 *Coming up:* {later[0]["title"]} · {short_date(later[0])}'] if later else []
-        teaser = later[:1]   # named in "Coming up", so it isn't "newly announced" on Thursday
         new = []
     else:
         head = [f"🌿 *This weekend · {date_range(s, e, weekday=True)}*", f"All events: {a.EVENTS_URL}"]
         new = by_start(x for x in dated if e < x["start"] <= d + timedelta(NEW_LOOKAHEAD_DAYS)
                        and x["key"] not in mentioned)[:MAX_NEW]
-        tail, teaser = [], []
     if not main and not new:
         return None
 
@@ -139,7 +134,7 @@ def compose(kind, events, d, mentioned):
                 parts += ["", f"➕ {len(main) - n_main} more on the events page"]
         if new[:n_new]:
             parts += ["", "✨ *Newly announced*", ""] + "\n\n".join(short_block(x) for x in new[:n_new]).split("\n")
-        return "\n".join(parts + tail)
+        return "\n".join(parts)
 
     # Trim (newly-announced first, then main events from the end) until it fits.
     n_main, n_new = len(main), len(new)
@@ -150,7 +145,7 @@ def compose(kind, events, d, mentioned):
         else:
             n_main -= 1
         text = render(n_main, n_new)
-    return {"caption": text, "included": main[:n_main] + new[:n_new] + teaser, "total": len(main) + len(new)}
+    return {"caption": text, "included": main[:n_main] + new[:n_new], "total": len(main) + len(new)}
 
 
 def kind_for(d):
