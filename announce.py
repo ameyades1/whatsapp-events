@@ -143,11 +143,15 @@ def list_groups():
 
 # ---------- log ----------
 
-def load_log():
+def read_log_rows():
     if not LOG_FILE.exists():
-        return set()
+        return []
     with LOG_FILE.open(newline="", encoding="utf-8") as f:
-        return {(row["kind"], row["key"]) for row in csv.DictReader(f)}
+        return list(csv.DictReader(f))
+
+
+def load_log():
+    return {(row["kind"], row["key"]) for row in read_log_rows()}
 
 
 def append_log(kind, key):
@@ -190,52 +194,64 @@ def main():
     if not groups:
         sys.exit("WA_GROUP_IDS is empty - run with --list-groups to find group ids.")
 
-    resp = requests.get(EVENTS_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
-    events = scrape_events(resp.text)
-    if not events:
-        sys.exit("No events found on the page - has the layout changed?")
+    events = fetch_events()
     print(f"Found {len(events)} upcoming events")
-
-    today = datetime.now(IST).date()
-    nxt = next_slot(today)
-    sent = load_log()
-
-    reminders, announcements = [], []
     for ev in events:
         if ev["start"] is None:
             print(f'WARN: could not parse date "{ev["date_text"]}" for {ev["title"]}')
-            continue
-        if ev["start"] < today:
-            continue  # already started; don't announce late
-        if ev["start"] <= nxt:
-            # This is the last send slot before the event starts.
-            if ("reminder", ev["key"]) not in sent:
-                reminders.append(ev)
-        elif ("announce", ev["key"]) not in sent:
-            announcements.append(ev)
 
-    # One message per run: a last-chance reminder beats a new announcement;
-    # within each kind, the event starting soonest goes first.
-    by_start = lambda e: e["start"]
-    if reminders:
-        ev, kind = min(reminders, key=by_start), "reminder"
-    elif announcements:
-        ev, kind = min(announcements, key=by_start), "announce"
-    else:
+    today = datetime.now(IST).date()
+    choice = pick(events, load_log(), today)
+    if choice is None:
         print("Nothing to send today.")
         return
+    ev, kind, waiting = choice
 
     text = format_message(ev, reminder=kind == "reminder", today=today)
     for g in groups:
         send(g, text)
     if not os.environ.get("DRY_RUN"):
-        append_log(kind, ev["key"])
-        if kind == "reminder":
-            # The reminder carries full details, so it also counts as the announcement.
-            append_log("announce", ev["key"])
-    waiting = len(reminders) + len(announcements) - 1
+        for k in log_kinds(kind):
+            append_log(k, ev["key"])
     print(f"Sent {kind}: {ev['key']}  ({waiting} more waiting)")
+
+
+def fetch_events():
+    resp = requests.get(EVENTS_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
+    events = scrape_events(resp.text)
+    if not events:
+        sys.exit("No events found on the page - has the layout changed?")
+    return events
+
+
+def log_kinds(kind):
+    # A reminder carries full details, so it also counts as the announcement.
+    return ["reminder", "announce"] if kind == "reminder" else ["announce"]
+
+
+def pick(events, sent, today):
+    """Choose the one message to send on `today`. Returns (event, kind, n_waiting) or None.
+
+    A last-chance reminder (event starts before the next send day) beats a new
+    announcement; within each kind, the event starting soonest goes first.
+    """
+    nxt = next_slot(today)
+    reminders, announcements = [], []
+    for ev in events:
+        if ev["start"] is None or ev["start"] < today:
+            continue  # unparseable, or already started
+        if ev["start"] <= nxt:
+            if ("reminder", ev["key"]) not in sent:
+                reminders.append(ev)
+        elif ("announce", ev["key"]) not in sent:
+            announcements.append(ev)
+    by_start = lambda e: e["start"]
+    if reminders:
+        return min(reminders, key=by_start), "reminder", len(reminders) + len(announcements) - 1
+    if announcements:
+        return min(announcements, key=by_start), "announce", len(announcements) - 1
+    return None
 
 
 if __name__ == "__main__":
