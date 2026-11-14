@@ -97,7 +97,7 @@ ICONS = {"Duration": "⏳", "Time": "🕖", "Mode": "📍", "Venue": "📍", "Da
 
 
 def format_message(ev, reminder=False, today=None):
-    lines = []
+    lines = ["*ANTAR YOG FOUNDATION*", ""]
     if reminder:
         days = (ev["start"] - today).days if today else None
         when = {0: "today", 1: "tomorrow"}.get(days, f'on {ev["start"]:%A}')
