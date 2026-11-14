@@ -120,7 +120,7 @@ def format_message(ev, reminder=False, today=None):
 # ---------- Green-API ----------
 
 def api(method, path, **kw):
-    base = os.environ.get("GREEN_API_URL", "https://api.green-api.com").rstrip("/")
+    base = (os.environ.get("GREEN_API_URL") or "https://api.green-api.com").rstrip("/")
     inst, token = os.environ["GREEN_API_INSTANCE"], os.environ["GREEN_API_TOKEN"]
     r = requests.request(method, f"{base}/waInstance{inst}/{path}/{token}", timeout=30, **kw)
     r.raise_for_status()
