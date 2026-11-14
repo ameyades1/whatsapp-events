@@ -39,7 +39,7 @@ CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
 # weekday -> post kind; keep in sync with the crons in .github/workflows/announce.yml
 SEND_DAYS = {6: "weekly", 3: "weekend"}
 SEND_TIME = {"weekly": "10:00", "weekend": "19:30"}
-LABEL = {"weekly": "Week ahead", "weekend": "This weekend"}
+LABEL = {"weekly": "Events this week", "weekend": "This weekend"}
 NEW_LOOKAHEAD_DAYS = 21       # Thursday "newly added" covers events up to 3 weeks out
 MAX_NEW = 3
 
@@ -116,7 +116,7 @@ def compose(kind, events, d, mentioned):
     main = by_start(x for x in dated if s <= x["start"] <= e)
 
     if kind == "weekly":
-        head = [f"🗓️ *Week ahead · {date_range(s, e)}*", f"All events: {a.EVENTS_URL}"]
+        head = [f"🗓️ *Events this week · {date_range(s, e)}*", f"All events: {a.EVENTS_URL}"]
         later = by_start(x for x in dated if x["start"] > e)
         tail = ["", f'📌 *Coming up:* {later[0]["title"]} · {short_date(later[0])}'] if later else []
         teaser = later[:1]   # named in "Coming up", so it isn't "newly announced" on Thursday
