@@ -56,7 +56,7 @@ def yt_card(caption):
     m = re.search(r"(?:youtu\.be/|v=)([\w-]{11})", caption)
     if not m:
         return ""
-    title = re.search(r"^\*(?!ANTAR)(.+?)\*\s*$", caption, re.M)
+    title = re.search(r"^\*(.+?)\*\s*$", caption, re.M)
     return (f'<div class="yt"><img src="https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg" alt="" loading="lazy">'
             f'<div class="yt-t"><b>{html.escape(title.group(1) if title else "YouTube video")}</b><span>youtube.com</span></div></div>')
 

@@ -12,7 +12,6 @@ from pathlib import Path
 
 BANK = Path(__file__).parent / "wa-messages"
 SUFFIX = "_whatsapp_en.txt"
-HEADER = "*ANTAR YOG FOUNDATION*\n🎥 *Wisdom for the week*"
 SEED = "antaryog-teachings-v1"   # change to reshuffle the order
 
 
@@ -38,4 +37,4 @@ def pick(sent_keys, bank=None):
 
 
 def format_post(item):
-    return f"{HEADER}\n\n{item['body']}"
+    return item["body"]
