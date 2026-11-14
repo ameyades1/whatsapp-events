@@ -241,7 +241,7 @@ def main():
         a.append_log(kind, key)
         for ev in post["included"]:
             a.append_log("included", ev["key"])
-    print(f"{kind}: {len(post['included'])} of {post['total']} events, {len(post['caption'])} chars")
+    print(f"{kind}: {post['total']} events, {len(post['caption'])} chars")
 
 
 if __name__ == "__main__":
