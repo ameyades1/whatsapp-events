@@ -157,7 +157,7 @@ def compose(kind, events, d, mentioned=None):
         if n < len(main):
             parts += ["", f"➕ {len(main) - n} more on the events page"]
         if kind == "weekly":
-            parts += ["", "👉 Details & registration:", a.EVENTS_URL, "", "🙏 Everyone is welcome."]
+            parts += ["", "Details & registration:", a.EVENTS_URL, "", "Everyone is welcome 🙏"]
         return "\n".join(parts)
 
     # Drop events from the end until the caption fits.
