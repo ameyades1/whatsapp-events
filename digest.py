@@ -118,8 +118,26 @@ def send_image(chat_id, path, caption):
     print(f"sent digest image to {chat_id}")
 
 
+def check_connection():
+    """Read-only check that the credentials work (sends nothing, uses no chat)."""
+    base = (os.environ.get("GREEN_API_URL") or "https://api.green-api.com").rstrip("/")
+    inst, token = os.environ.get("GREEN_API_INSTANCE", ""), os.environ.get("GREEN_API_TOKEN", "")
+    if not (inst and token):
+        print("Green-API check: GREEN_API_INSTANCE / GREEN_API_TOKEN not set")
+        return
+    try:
+        r = requests.get(f"{base}/waInstance{inst}/getStateInstance/{token}", timeout=30)
+        r.raise_for_status()
+        print(f"Green-API check: instance state = {r.json().get('stateInstance')}")
+    except requests.RequestException as e:
+        print(f"Green-API check FAILED: {e.__class__.__name__} (status {getattr(e.response, 'status_code', '?')})")
+
+
 def main():
     today = datetime.now(a.IST).date()
+    if os.environ.get("DRY_RUN") and os.environ.get("DIGEST_DATE"):
+        today = datetime.strptime(os.environ["DIGEST_DATE"], "%Y-%m-%d").date()  # preview a given week
+        print(f"Previewing the digest for {today:%a %d %b %Y}")
     preview = "--preview" in sys.argv
     events = a.fetch_events()
     result = format_digest(events, today)
@@ -132,6 +150,8 @@ def main():
     groups = [g.strip() for g in os.environ.get("WA_GROUP_IDS", "").split(",") if g.strip()]
     if not groups:
         sys.exit("WA_GROUP_IDS is empty - run announce.py --list-groups to find group ids.")
+    if os.environ.get("DRY_RUN"):
+        check_connection()
     key = f"week of {today.isoformat()}"
     if ("digest", key) in a.load_log():
         print("Digest already sent this week.")

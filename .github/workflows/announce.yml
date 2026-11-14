@@ -9,6 +9,10 @@ on:
         description: "Print messages without sending"
         type: boolean
         default: false
+      digest_date:
+        description: "Dry run only: preview the digest as if sent on this date (YYYY-MM-DD)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -38,6 +42,7 @@ jobs:
           GREEN_API_URL: ${{ secrets.GREEN_API_URL }}
           GREEN_API_MEDIA_URL: ${{ secrets.GREEN_API_MEDIA_URL }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          DIGEST_DATE: ${{ inputs.digest_date }}
         run: python digest.py
 
       # Committing the log prevents duplicates and keeps the schedule alive
