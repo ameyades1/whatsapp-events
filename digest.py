@@ -1,12 +1,11 @@
 """Twice-weekly WhatsApp posts: the fixed logo banner (assets/banner.png) + a caption.
 
   Sunday 10:00 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
-  Thursday 19:30 IST  "weekend"  short list of events starting Fri–Mon, plus events
-                                 newly added to the site since they were last posted.
-                                 Skipped if there is nothing to say.
+  Thursday 19:30 IST  "weekend"  short list of events starting Fri–Mon.
+                                 Skipped if there are none.
 
-Every event included in a post is recorded in sent-log.csv (kind "included"), so the
-Thursday post knows what is new. Each post is recorded as kind weekly/weekend.
+Each post is recorded in sent-log.csv (kind weekly/weekend), plus one "included"
+row per event it listed.
 
 Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
   GREEN_API_MEDIA_URL   host for file uploads (shown in the Green-API console)
@@ -39,8 +38,6 @@ CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
 SEND_DAYS = {6: "weekly", 3: "weekend"}
 SEND_TIME = {"weekly": "10:00", "weekend": "19:30"}
 LABEL = {"weekly": "Events this week", "weekend": "This weekend"}
-NEW_LOOKAHEAD_DAYS = 21       # Thursday "newly added" covers events up to 3 weeks out
-MAX_NEW = 3
 
 
 # ---------- text ----------
@@ -104,48 +101,37 @@ def by_start(evs):
     return sorted(evs, key=lambda e: e["start"])
 
 
-def compose(kind, events, d, mentioned):
+def compose(kind, events, d, mentioned=None):
     """Build the caption for a post of `kind` sent on date d.
 
-    mentioned: keys of events already included in earlier posts.
     Returns dict(caption, included=[events in the caption], total) or None if nothing to send.
+    (`mentioned` is unused; kept so older callers keep working.)
     """
     s, e = window(kind, d)
-    dated = [x for x in events if x["start"]]
-    main = by_start(x for x in dated if s <= x["start"] <= e)
+    main = by_start(x for x in events if x["start"] and s <= x["start"] <= e)
+    if not main:
+        return None
 
     if kind == "weekly":
         head = [f"🗓️ *Events this week · {date_range(s, e)}*", f"All events: {a.EVENTS_URL}"]
-        new = []
     else:
         head = [f"🌿 *This weekend · {date_range(s, e, weekday=True)}*", f"All events: {a.EVENTS_URL}"]
-        new = by_start(x for x in dated if e < x["start"] <= d + timedelta(NEW_LOOKAHEAD_DAYS)
-                       and x["key"] not in mentioned)[:MAX_NEW]
-    if not main and not new:
-        return None
 
-    def render(n_main, n_new):
-        parts = list(head)
-        if main:
-            blocks = [full_block(i + 1, x) for i, x in enumerate(main[:n_main])] if kind == "weekly" \
-                else [short_block(x) for x in main[:n_main]]
-            parts += [""] + "\n\n".join(blocks).split("\n")
-            if n_main < len(main):
-                parts += ["", f"➕ {len(main) - n_main} more on the events page"]
-        if new[:n_new]:
-            parts += ["", "✨ *Newly announced*", ""] + "\n\n".join(short_block(x) for x in new[:n_new]).split("\n")
+    def render(n):
+        blocks = [full_block(i + 1, x) for i, x in enumerate(main[:n])] if kind == "weekly" \
+            else [short_block(x) for x in main[:n]]
+        parts = head + [""] + "\n\n".join(blocks).split("\n")
+        if n < len(main):
+            parts += ["", f"➕ {len(main) - n} more on the events page"]
         return "\n".join(parts)
 
-    # Trim (newly-announced first, then main events from the end) until it fits.
-    n_main, n_new = len(main), len(new)
-    text = render(n_main, n_new)
-    while len(text) > CAPTION_LIMIT and (n_main > 1 or n_new > 0):
-        if n_new:
-            n_new -= 1
-        else:
-            n_main -= 1
-        text = render(n_main, n_new)
-    return {"caption": text, "included": main[:n_main] + new[:n_new], "total": len(main) + len(new)}
+    # Drop events from the end until the caption fits.
+    n = len(main)
+    text = render(n)
+    while len(text) > CAPTION_LIMIT and n > 1:
+        n -= 1
+        text = render(n)
+    return {"caption": text, "included": main[:n], "total": len(main)}
 
 
 def kind_for(d):
