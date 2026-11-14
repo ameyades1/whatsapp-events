@@ -1,15 +1,16 @@
 """Announce Antar Yog events to WhatsApp groups via Green-API.
 
-Each run:
-  * scrapes the "Upcoming Events" on the events page,
-  * announces every event not announced before,
-  * sends a reminder for events starting tomorrow (IST),
-  * records what was sent in sent-log.csv so nothing is sent twice.
+Runs on SEND_DAYS (default Mon/Wed/Fri) and sends ONE message per run:
+  1. a reminder for the soonest event starting before the next send day, else
+  2. an announcement for the soonest event not yet announced.
+Events that don't get a slot before they start are skipped.
+Sent messages are recorded in sent-log.csv so nothing is sent twice.
 
 Env vars:
   GREEN_API_INSTANCE, GREEN_API_TOKEN   credentials from console.green-api.com
   GREEN_API_URL                         optional, default https://api.green-api.com
   WA_GROUP_IDS                          comma-separated group ids (...@g.us)
+  SEND_DAYS                             e.g. mon,wed,fri (must match workflow cron)
   DRY_RUN=1                             print messages instead of sending
 
 Usage:
@@ -95,10 +96,12 @@ def scrape_events(html):
 ICONS = {"Duration": "⏳", "Time": "🕖", "Mode": "📍", "Venue": "📍", "Dakshina": "🙏"}
 
 
-def format_message(ev, reminder=False):
+def format_message(ev, reminder=False, today=None):
     lines = []
     if reminder:
-        lines += ["⏰ *Reminder: starts tomorrow!*", ""]
+        days = (ev["start"] - today).days if today else None
+        when = {0: "today", 1: "tomorrow"}.get(days, f'on {ev["start"]:%A}')
+        lines += [f"⏰ *Reminder: starts {when}!*", ""]
     lines.append(f'*{ev["title"]}*')
     lines.append(f'📅 {ev["date_text"]}')
     for k, v in ev["details"].items():
@@ -156,6 +159,26 @@ def append_log(kind, key):
         w.writerow([datetime.now(IST).strftime("%Y-%m-%d %H:%M"), kind, key])
 
 
+# ---------- schedule ----------
+
+WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def send_days():
+    """SEND_DAYS (default 'mon,wed,fri') must match the cron in the workflow."""
+    raw = os.environ.get("SEND_DAYS") or "mon,wed,fri"
+    return {WEEKDAYS.index(d.strip().lower()[:3]) for d in raw.split(",") if d.strip()}
+
+
+def next_slot(today):
+    days = send_days()
+    for i in range(1, 8):
+        d = today + timedelta(days=i)
+        if d.weekday() in days:
+            return d
+    return today + timedelta(days=7)
+
+
 # ---------- main ----------
 
 def main():
@@ -175,29 +198,44 @@ def main():
     print(f"Found {len(events)} upcoming events")
 
     today = datetime.now(IST).date()
+    nxt = next_slot(today)
     sent = load_log()
+
+    reminders, announcements = [], []
     for ev in events:
         if ev["start"] is None:
             print(f'WARN: could not parse date "{ev["date_text"]}" for {ev["title"]}')
-        if ev["start"] and ev["start"] < today:
+            continue
+        if ev["start"] < today:
             continue  # already started; don't announce late
-        tomorrow = ev["start"] == today + timedelta(days=1)
-        need_announce = ("announce", ev["key"]) not in sent
-        need_remind = tomorrow and ("reminder", ev["key"]) not in sent
+        if ev["start"] <= nxt:
+            # This is the last send slot before the event starts.
+            if ("reminder", ev["key"]) not in sent:
+                reminders.append(ev)
+        elif ("announce", ev["key"]) not in sent:
+            announcements.append(ev)
 
-        if need_remind:
-            # The reminder carries the full details, so it also counts as the announcement.
-            for g in groups:
-                send(g, format_message(ev, reminder=True))
-            if not os.environ.get("DRY_RUN"):
-                append_log("reminder", ev["key"])
-                if need_announce:
-                    append_log("announce", ev["key"])
-        elif need_announce:
-            for g in groups:
-                send(g, format_message(ev))
-            if not os.environ.get("DRY_RUN"):
-                append_log("announce", ev["key"])
+    # One message per run: a last-chance reminder beats a new announcement;
+    # within each kind, the event starting soonest goes first.
+    by_start = lambda e: e["start"]
+    if reminders:
+        ev, kind = min(reminders, key=by_start), "reminder"
+    elif announcements:
+        ev, kind = min(announcements, key=by_start), "announce"
+    else:
+        print("Nothing to send today.")
+        return
+
+    text = format_message(ev, reminder=kind == "reminder", today=today)
+    for g in groups:
+        send(g, text)
+    if not os.environ.get("DRY_RUN"):
+        append_log(kind, ev["key"])
+        if kind == "reminder":
+            # The reminder carries full details, so it also counts as the announcement.
+            append_log("announce", ev["key"])
+    waiting = len(reminders) + len(announcements) - 1
+    print(f"Sent {kind}: {ev['key']}  ({waiting} more waiting)")
 
 
 if __name__ == "__main__":
