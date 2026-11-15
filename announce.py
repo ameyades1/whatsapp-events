@@ -13,6 +13,7 @@ import csv
 import os
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -143,9 +144,22 @@ def main():
         print(__doc__)
 
 
+FETCH_WAITS = [60, 120, 240, 480]   # seconds between attempts: 5 tries over ~15 min
+
+
 def fetch_events():
-    resp = requests.get(EVENTS_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
+    # Retry so a brief DNS/network outage at send time doesn't cost the post.
+    for attempt, wait in enumerate(FETCH_WAITS + [None], 1):
+        try:
+            resp = requests.get(EVENTS_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            break
+        except requests.RequestException as e:
+            if wait is None:
+                raise
+            print(f"Fetching events failed (attempt {attempt}/{len(FETCH_WAITS) + 1}): {e}")
+            print(f"Retrying in {wait // 60} min...", flush=True)
+            time.sleep(wait)
     events = scrape_events(resp.text)
     if not events:
         sys.exit("No events found on the page - has the layout changed?")
