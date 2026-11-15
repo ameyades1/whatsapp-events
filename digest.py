@@ -19,6 +19,7 @@ Usage:
   python digest.py --preview       print today's caption without sending
 """
 
+import mimetypes
 import os
 import re
 import sys
@@ -128,7 +129,14 @@ def compose(kind, events, d, mentioned=None):
     """
     if kind == "teaching":
         item = t.pick(mentioned or set(), d)
-        return {"caption": t.format_post(item), "included": [item], "total": 1, "text_only": True} if item else None
+        if not item:
+            return None
+        post = {"caption": t.format_post(item), "included": [item], "total": 1}
+        if item.get("image"):
+            post["image"] = item["image"]   # course post: its own picture + caption
+        else:
+            post["text_only"] = True        # YouTube teaching: text, so the preview shows
+        return post
     s, e = window(kind, d)
     main = by_start(x for x in events if x["start"] and s <= x["start"] <= e)
     if not main:
@@ -169,7 +177,7 @@ def send_image(chat_id, path, caption):
     with path.open("rb") as f:
         r = requests.post(f"{base}/waInstance{inst}/sendFileByUpload/{token}", timeout=60,
                           data={"chatId": chat_id, "caption": caption},
-                          files={"file": (path.name, f, "image/png")})
+                          files={"file": (path.name, f, mimetypes.guess_type(path.name)[0] or "image/jpeg")})
     r.raise_for_status()
     print(f"sent image post to {chat_id}")
 
@@ -234,10 +242,10 @@ def main():
             a.send(g, post["caption"])   # text, so WhatsApp shows the YouTube preview
             continue
         try:
-            send_image(g, BANNER, post["caption"])
+            send_image(g, post.get("image") or BANNER, post["caption"])
         except requests.RequestException as e:
             print(f"image send failed for {g} ({e}); falling back to text")
-            a.send(g, "*ANTAR YOG FOUNDATION*\n\n" + post["caption"])
+            a.send(g, post["caption"] if post.get("image") else "*ANTAR YOG FOUNDATION*\n\n" + post["caption"])
     if test:
         print("TEST SEND - not recorded in sent-log.csv")
     elif not dry:

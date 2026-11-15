@@ -61,8 +61,11 @@ def yt_card(caption):
             f'<div class="yt-t"><b>{html.escape(title.group(1) if title else "YouTube video")}</b><span>youtube.com</span></div></div>')
 
 
-def bubble(caption, tick="", text_only=False):
-    top = yt_card(caption) if text_only else '<img src="banner.png" alt="Antar Yog Foundation logo">'
+def bubble(caption, tick="", text_only=False, image=None):
+    if image:
+        top = f'<img src="courses/{html.escape(image.name)}" alt="">'
+    else:
+        top = yt_card(caption) if text_only else '<img src="banner.png" alt="Antar Yog Foundation logo">'
     return (f'<div class="chat"><div class="bubble">{top}'
             f'{wa_to_html(caption)}{f"<span class=tick>{tick}</span>" if tick else ""}</div></div>')
 
@@ -78,6 +81,9 @@ def build(weeks=4):
 
     OUT.parent.mkdir(exist_ok=True)
     shutil.copy(g.BANNER, OUT.parent / "banner.png")
+    (OUT.parent / "courses").mkdir(exist_ok=True)
+    for img in (p for p in tb.COURSES.iterdir() if p.suffix in tb.IMAGE_EXTS):
+        shutil.copy(img, OUT.parent / "courses" / img.name)
     slots = plan(events, rows, now, weeks)
     horizon = now.date() + timedelta(weeks=weeks)
 
@@ -114,7 +120,7 @@ def build(weeks=4):
         t = g.SEND_TIME[kind]
         next_html = f"""
         <div class="next-meta">{d:%A %d %B} · {t} IST · {kind_pill(kind)}<span class="sub">{len(post["caption"])}/1024 chars</span></div>
-        {bubble(post["caption"], t + " ✓✓", post.get("text_only"))}"""
+        {bubble(post["caption"], t + " ✓✓", post.get("text_only"), post.get("image"))}"""
     else:
         next_html = '<p class="empty">No events in the next few weeks.</p>'
 
@@ -125,7 +131,7 @@ def build(weeks=4):
             plan_rows.append(f"""
             <details class="row">
               <summary><span class="date">{d:%a %d %b}</span>{kind_pill(kind)}<span class="title">{html.escape(titles)}</span></summary>
-              {bubble(post["caption"], g.SEND_TIME[kind], post.get("text_only"))}
+              {bubble(post["caption"], g.SEND_TIME[kind], post.get("text_only"), post.get("image"))}
             </details>""")
         else:
             why = "message bank used up" if kind == "teaching" else "no events, skipped"
@@ -165,9 +171,9 @@ def build(weeks=4):
         sched_rows.append(f"""
             <details class="row sched{' past' if past or done else ''}">
               <summary><span class="sdate">{d:%a %d %b %Y}</span>{occ}{state}<span class="stitle">{html.escape(item["title"])}</span></summary>
-              {bubble(tb.format_post(item), "19:17", True)}
+              {bubble(tb.format_post(item), g.SEND_TIME["teaching"], not item.get("image"), item.get("image"))}
             </details>""")
-    unscheduled = len(bank) - len({s for s, _ in schedule.values()})
+    unscheduled = len({x["slug"] for x in bank if not x["image"]} - {s for s, _ in schedule.values()})
     last = max(schedule) if schedule else today_iso
     teach_html = (f'<p class="note" style="margin:0 0 10px">{len(schedule)} Thursdays planned to {datetime.fromisoformat(last):%d %b %Y}, '
                   f'{sum(1 for _, o in schedule.values() if o)} of them around festivals and special days · {len(sent_t)} sent · '
