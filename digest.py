@@ -1,18 +1,21 @@
-"""Twice-weekly WhatsApp posts: the fixed logo banner (assets/banner.png) + a caption.
+"""WhatsApp posts:
 
-  Sunday 09:43 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
+  Sunday 09:43 IST    "weekly"   logo banner + full list of events starting Mon–Sun
+                                 of the coming week.
   Thursday 19:17 IST  "teaching" one message from wa-messages/ (see teaching.py),
                                  sent as text so the YouTube preview shows.
+  Tuesday 19:17 IST   "course"   once a month, on dates in course-schedule.csv: a course
+                                 thumbnail + caption from wa-courses/ (see courses.py).
 
-Each post is recorded in sent-log.csv (kind weekly/teaching), plus one "included"
-row per event it listed.
+Each post is recorded in sent-log.csv (kind weekly/teaching/course), plus one
+"included" row per event or message it carried.
 
 Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
   GREEN_API_MEDIA_URL   host for file uploads (shown in the Green-API console)
   SEND_GAP_SECONDS      pause between groups (default 90)
   DIGEST_DATE           dry/test run only: pretend today is this date (YYYY-MM-DD)
   TEST_SEND=1           really send, but don't record it in the log
-  DIGEST_KIND           force "weekly" or "teaching" regardless of the day
+  DIGEST_KIND           force "weekly", "teaching" or "course" regardless of the day
 
 Usage:
   python digest.py                 send today's post (if today is a send day)
@@ -30,6 +33,7 @@ from pathlib import Path
 import requests
 
 import announce as a
+import courses as c
 import teaching as t
 
 ROOT = Path(__file__).parent
@@ -37,9 +41,9 @@ BANNER = ROOT / "assets" / "banner.png"   # fixed image, made once from the site
 CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
 
 # weekday -> post kind; keep in sync with the crons in .github/workflows/announce.yml
-SEND_DAYS = {6: "weekly", 3: "teaching"}
-SEND_TIME = {"weekly": "09:43", "teaching": "19:17"}
-LABEL = {"weekly": "Events this week", "teaching": "Teaching"}
+SEND_DAYS = {6: "weekly", 3: "teaching", 1: "course"}
+SEND_TIME = {"weekly": "09:43", "teaching": "19:17", "course": "19:17"}
+LABEL = {"weekly": "Events this week", "teaching": "Teaching", "course": "Course"}
 
 
 # ---------- text ----------
@@ -129,14 +133,10 @@ def compose(kind, events, d, mentioned=None):
     """
     if kind == "teaching":
         item = t.pick(mentioned or set(), d)
-        if not item:
-            return None
-        post = {"caption": t.format_post(item), "included": [item], "total": 1}
-        if item.get("image"):
-            post["image"] = item["image"]   # course post: its own picture + caption
-        else:
-            post["text_only"] = True        # YouTube teaching: text, so the preview shows
-        return post
+        return {"caption": t.format_post(item), "included": [item], "total": 1, "text_only": True} if item else None
+    if kind == "course":
+        item = c.pick(mentioned or set(), d)   # None on Tuesdays the schedule doesn't list
+        return {"caption": item["body"], "included": [item], "total": 1, "image": item["image"]} if item else None
     s, e = window(kind, d)
     main = by_start(x for x in events if x["start"] and s <= x["start"] <= e)
     if not main:
@@ -213,7 +213,7 @@ def main():
         print(f"{today:%A} is not a send day ({', '.join(f'{a.WEEKDAYS[k].title()}={v}' for k, v in SEND_DAYS.items())}).")
         return
 
-    events = a.fetch_events()
+    events = a.fetch_events() if kind == "weekly" else []   # only the Sunday post lists events
     rows = a.read_log_rows()
     post = compose(kind, events, today, mentioned_keys(rows))
 

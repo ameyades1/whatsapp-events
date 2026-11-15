@@ -3,7 +3,9 @@ name: Announce events on WhatsApp
 on:
   schedule:
     - cron: "13 4 * * 0"   # Sun 09:43 IST - week-ahead post
-    - cron: "47 13 * * 4"   # Thu 19:17 IST - teaching post (keep both in sync with SEND_DAYS in digest.py)
+    - cron: "47 13 * * 4"   # Thu 19:17 IST - teaching post
+    - cron: "47 13 * * 2"   # Tue 19:17 IST - course post, only on dates in course-schedule.csv
+                            # (keep all three in sync with SEND_DAYS in digest.py)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -15,7 +17,7 @@ on:
         type: boolean
         default: false
       digest_date:
-        description: "Dry run / test send: act as if today were this date (YYYY-MM-DD, a Sun or Thu)"
+        description: "Dry run / test send: act as if today were this date (YYYY-MM-DD, a Sun, Tue or Thu)"
         type: string
         default: ""
 

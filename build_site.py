@@ -12,6 +12,7 @@ from pathlib import Path
 
 import announce as a
 import digest as g
+import courses as cs
 import teaching as tb
 
 OUT = Path(__file__).with_name("site") / "index.html"
@@ -45,6 +46,8 @@ def plan(events, rows, now, weeks):
             if f"{kind} {d.isoformat()}" in sent or now.hour >= hh + 3:
                 continue  # today's post already went (or its window has passed)
         post = g.compose(kind, events, d, mentioned)
+        if kind == "course" and not post:
+            continue  # most Tuesdays have no course post
         if post:
             mentioned |= {e["key"] for e in post["included"]}
         slots.append((d, kind, post))
@@ -82,7 +85,7 @@ def build(weeks=4):
     OUT.parent.mkdir(exist_ok=True)
     shutil.copy(g.BANNER, OUT.parent / "banner.png")
     (OUT.parent / "courses").mkdir(exist_ok=True)
-    for img in (p for p in tb.COURSES.iterdir() if p.suffix in tb.IMAGE_EXTS):
+    for img in (p for p in cs.COURSES.iterdir() if p.suffix in cs.IMAGE_EXTS):
         shutil.copy(img, OUT.parent / "courses" / img.name)
     slots = plan(events, rows, now, weeks)
     horizon = now.date() + timedelta(weeks=weeks)
@@ -171,14 +174,36 @@ def build(weeks=4):
         sched_rows.append(f"""
             <details class="row sched{' past' if past or done else ''}">
               <summary><span class="sdate">{d:%a %d %b %Y}</span>{occ}{state}<span class="stitle">{html.escape(item["title"])}</span></summary>
-              {bubble(tb.format_post(item), g.SEND_TIME["teaching"], not item.get("image"), item.get("image"))}
+              {bubble(tb.format_post(item), g.SEND_TIME["teaching"], True)}
             </details>""")
-    unscheduled = len({x["slug"] for x in bank if not x["image"]} - {s for s, _ in schedule.values()})
+    unscheduled = len(bank) - len({s for s, _ in schedule.values()})
     last = max(schedule) if schedule else today_iso
     teach_html = (f'<p class="note" style="margin:0 0 10px">{len(schedule)} Thursdays planned to {datetime.fromisoformat(last):%d %b %Y}, '
                   f'{sum(1 for _, o in schedule.values() if o)} of them around festivals and special days · {len(sent_t)} sent · '
                   f'{unscheduled} more messages in the bank for later. Dates come from <code>teaching-schedule.csv</code>.</p>'
                   + "".join(sched_rows))
+
+    # ---- course schedule ----
+    courses, cschedule = cs.load_courses(), cs.load_schedule()
+    sent_c = {k for k in already if k.startswith("course:")}
+    course_rows = []
+    for day, (slug, occasion) in sorted(cschedule.items()):
+        item = courses.get(slug)
+        if not item:
+            course_rows.append(f'<div class="row idle"><span class="sdate">{day}</span><span class="stitle">⚠️ {html.escape(slug)}: no such course post</span></div>')
+            continue
+        d = datetime.fromisoformat(day).date()
+        done = item["key"] in sent_c
+        past = day < today_iso
+        occ = f'<span class="pill occ">{html.escape(occasion)}</span>' if occasion else ""
+        state = ' <span class="status sent">Sent</span>' if done else (' <span class="status muted">missed</span>' if past else "")
+        course_rows.append(f"""
+            <details class="row sched{' past' if past or done else ''}">
+              <summary><span class="sdate">{d:%a %d %b %Y}</span>{occ}{state}<span class="stitle">{html.escape(item["title"])}</span></summary>
+              {bubble(item["body"], g.SEND_TIME["course"], image=item["image"])}
+            </details>""")
+    course_html = (f'<p class="note" style="margin:0 0 10px">{len(cschedule)} course posts planned · {len(sent_c)} sent. '
+                   f'Dates come from <code>course-schedule.csv</code>.</p>' + "".join(course_rows))
 
     days_label = " · ".join(f"{g.LABEL[k]}: {a.WEEKDAYS[w].title()} {g.SEND_TIME[k]}" for w, k in sorted(g.SEND_DAYS.items(), key=lambda x: (x[0] + 1) % 7))
 
@@ -198,6 +223,7 @@ def build(weeks=4):
         hist_rows="".join(hist_rows) or '<tr><td colspan="3" class="empty">Nothing sent yet.</td></tr>',
         source=a.EVENTS_URL,
         teach_html=teach_html,
+        course_html=course_html,
     )
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(page, encoding="utf-8")
@@ -262,6 +288,7 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
 .sched .stitle {{ flex-basis: calc(100% - 24px); order: 5; }}
 .sched summary::after {{ order: 4; }}
 .row.past summary {{ opacity: .55; }}
+.pill.course {{ background: var(--blue-soft); color: var(--blue); }}
 .pill.teaching {{ background: var(--warn-soft); color: var(--warn); }}
 .yt {{ background: rgba(0,0,0,.06); border-radius: 6px; overflow: hidden; margin: -2px 0 8px; }}
 .yt img {{ display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }}
@@ -328,6 +355,10 @@ footer {{ color: var(--muted); font-size: .8rem; margin-top: 24px; text-align: c
   <section>
     <h2>Teaching video schedule · Thursdays 19:17</h2>
     {teach_html}
+  </section>
+  <section>
+    <h2>Course posts · once a month, Tuesdays 19:17</h2>
+    {course_html}
   </section>
 
   <section>
