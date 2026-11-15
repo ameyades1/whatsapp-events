@@ -15,6 +15,7 @@ masked and message text is cut to the first line.
 import json
 import os
 import re
+import time
 from collections import Counter
 
 import requests
@@ -50,7 +51,9 @@ print(f"  instance state: {call('GET', 'getStateInstance').get('stateInstance')}
 
 print("\n== 2. Our recent posts per group")
 newest = None
-for g in GROUPS:
+for i, g in enumerate(GROUPS):
+    if i:
+        time.sleep(15)  # getChatHistory is rate-limited (got HTTP 429 back-to-back)
     hist = call("POST", "getChatHistory", json={"chatId": g, "count": 30}) or []
     ours = [m for m in hist if m.get("type") == "outgoing"]
     print(f"  group {mask(g)}: {len(hist)} recent messages, {len(ours)} sent by us")
