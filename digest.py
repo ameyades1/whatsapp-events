@@ -3,9 +3,8 @@
   Sunday 11:17 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
   Thursday 19:37 IST  "teaching" one message from wa-messages/ (see teaching.py),
                                  sent as text so the YouTube preview shows.
-  ("weekend", a short Fri–Mon events list, is still available via DIGEST_KIND.)
 
-Each post is recorded in sent-log.csv (kind weekly/weekend), plus one "included"
+Each post is recorded in sent-log.csv (kind weekly/teaching), plus one "included"
 row per event it listed.
 
 Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
@@ -13,7 +12,7 @@ Env vars: same as announce.py (GREEN_API_*, WA_GROUP_IDS, DRY_RUN), plus
   SEND_GAP_SECONDS      pause between groups (default 90)
   DIGEST_DATE           dry/test run only: pretend today is this date (YYYY-MM-DD)
   TEST_SEND=1           really send, but don't record it in the log
-  DIGEST_KIND           force "weekly" or "weekend" regardless of the day
+  DIGEST_KIND           force "weekly" or "teaching" regardless of the day
 
 Usage:
   python digest.py                 send today's post (if today is a send day)
@@ -38,8 +37,8 @@ CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
 
 # weekday -> post kind; keep in sync with the crons in .github/workflows/announce.yml
 SEND_DAYS = {6: "weekly", 3: "teaching"}
-SEND_TIME = {"weekly": "11:17", "weekend": "19:37", "teaching": "19:37"}
-LABEL = {"weekly": "Events this week", "weekend": "This weekend", "teaching": "Teaching"}
+SEND_TIME = {"weekly": "11:17", "teaching": "19:37"}
+LABEL = {"weekly": "Events this week", "teaching": "Teaching"}
 
 
 # ---------- text ----------
@@ -104,14 +103,6 @@ def full_block(ev, i=None):
     return "\n".join(lines)
 
 
-def short_block(ev):
-    meta = " · ".join(x for x in [short_date(ev), short_mode(ev)] if x)
-    lines = [f'▫️ *{ev["title"]}*', meta]
-    if ev["link"]:
-        lines.append(f'👉 {ev["link"]}')
-    return "\n".join(lines)
-
-
 def date_range(s, e, weekday=False):
     fmt = (lambda d, m: f"{d:%a} {d.day}" + (f" {d:%b}" if m else "")) if weekday else \
           (lambda d, m: f"{d.day}" + (f" {d:%b}" if m else ""))
@@ -122,9 +113,7 @@ def date_range(s, e, weekday=False):
 
 def window(kind, d):
     """Date range of events a post on day d covers."""
-    if kind == "weekly":
-        return d + timedelta(1), d + timedelta(7)      # Sun -> Mon..Sun
-    return d + timedelta(1), d + timedelta(4)          # Thu -> Fri..Mon
+    return d + timedelta(1), d + timedelta(7)          # Sun -> Mon..Sun
 
 
 def by_start(evs):
@@ -145,19 +134,14 @@ def compose(kind, events, d, mentioned=None):
     if not main:
         return None
 
-    if kind == "weekly":
-        head = [f"🗓️ *Events this week · {date_range(s, e)}*"]
-    else:
-        head = [f"🌿 *This weekend · {date_range(s, e, weekday=True)}*", f"All events: {a.EVENTS_URL}"]
+    head = [f"🗓️ *Events this week · {date_range(s, e)}*"]
 
     def render(n):
-        blocks = [full_block(x, i + 1) for i, x in enumerate(main[:n])] if kind == "weekly" \
-            else [short_block(x) for x in main[:n]]
+        blocks = [full_block(x, i + 1) for i, x in enumerate(main[:n])]
         parts = head + [""] + "\n\n".join(blocks).split("\n")
         if n < len(main):
             parts += ["", f"➕ {len(main) - n} more on the events page"]
-        if kind == "weekly":
-            parts += ["", "*Details & registration:*", a.EVENTS_URL, "", "Everyone is welcome 🙏"]
+        parts += ["", "*Details & registration:*", a.EVENTS_URL, "", "Everyone is welcome 🙏"]
         return "\n".join(parts)
 
     # Drop events from the end until the caption fits.

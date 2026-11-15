@@ -249,7 +249,6 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
 .bubble img {{ display: block; width: 100%; border-radius: 6px; margin: -2px 0 8px; }}
 .tick {{ display: block; text-align: right; font-size: 11px; opacity: .6; margin-top: 2px; }}
 .pill {{ display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }}
-.pill.reminder {{ background: var(--warn-soft); color: var(--warn); }}
 .pill.weekly {{ background: var(--brand-soft); color: var(--brand); }}
 .pill.occ {{ background: var(--blue-soft); color: var(--blue); white-space: normal; }}
 .sched summary {{ flex-wrap: wrap; row-gap: 2px; }}
@@ -262,7 +261,6 @@ h2 {{ font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color
 .yt img {{ display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }}
 .yt-t {{ padding: 6px 8px; font-size: 13px; line-height: 1.3; }}
 .yt-t span {{ display: block; opacity: .6; font-size: 12px; margin-top: 2px; }}
-.pill.weekend {{ background: var(--ok-soft); color: var(--ok); }}
 .pill.digest {{ background: var(--brand-soft); color: var(--brand); }}
 .pill.announce {{ background: var(--blue-soft); color: var(--blue); }}
 .row {{ border-top: 1px solid var(--line); }}
