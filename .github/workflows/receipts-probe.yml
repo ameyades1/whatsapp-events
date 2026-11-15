@@ -9,10 +9,11 @@ on:
         description: "Also read & delete queued Green-API notifications (affects only Green-API's queue)"
         type: boolean
         default: false
-      enable_status:
-        description: "Turn on outgoing message status notifications in Green-API (one-time settings change)"
-        type: boolean
-        default: false
+      status_notifications:
+        description: "Turn Green-API outgoing message status notifications on or off (settings change)"
+        type: choice
+        options: [unchanged, "on", "off"]
+        default: unchanged
 
 permissions:
   contents: read
@@ -33,5 +34,5 @@ jobs:
           GREEN_API_URL: ${{ secrets.GREEN_API_URL }}
           WA_GROUP_IDS: ${{ secrets.WA_GROUP_IDS }}
           DRAIN: ${{ inputs.drain && '1' || '' }}
-          ENABLE_STATUS: ${{ inputs.enable_status && '1' || '' }}
+          STATUS_NOTIFICATIONS: ${{ inputs.status_notifications }}
         run: python tools/receipts_probe.py

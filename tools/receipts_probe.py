@@ -7,11 +7,11 @@ Sends nothing to WhatsApp. It reads:
   4. pending notifications (receiveNotification), summarised by type/status.
 Notifications are left in the queue unless DRAIN=1, which deletes the ones it
 reads (that only affects Green-API's queue, not WhatsApp).
-ENABLE_STATUS=1 additionally turns on outgoing message status notifications
-(setSettings outgoingWebhook=yes) - the only setting it can change.
+STATUS_NOTIFICATIONS=on|off turns outgoing message status notifications on or off
+(setSettings outgoingWebhook) - the only setting it can change.
 
-The repo is public, so its Actions logs are too: group ids and phone numbers are
-masked and message text is cut to the first line.
+The repo is public, so its Actions logs are too: it only looks at posts the bot
+sent (sendByApi), never prints message text, and masks group ids / phone numbers.
 """
 
 import json
@@ -38,16 +38,13 @@ def call(method, path, suffix="", **kw):
     return r.json() if r.text.strip() else None
 
 
-def first_line(m):
-    text = m.get("textMessage") or m.get("caption") or m.get("typeMessage") or ""
-    return text.strip().splitlines()[0][:60] if text.strip() else ""
-
-
-if os.environ.get("ENABLE_STATUS") == "1":
+switch = os.environ.get("STATUS_NOTIFICATIONS", "")
+if switch in ("on", "off"):
     # The one setting change this script can make: queue status notifications
     # (sent/delivered/read) for messages we send. Nothing else is touched.
-    print("== 0. Turning on outgoing message status notifications")
-    print(f"  setSettings -> {call('POST', 'setSettings', json={'outgoingWebhook': 'yes'})}")
+    print(f"== 0. Turning outgoing message status notifications {switch}")
+    print(f"  setSettings -> {call('POST', 'setSettings', json={'outgoingWebhook': 'yes' if switch == 'on' else 'no'})}")
+    print("  (Green-API applies settings after a few minutes)")
     print()
 
 print("== 1. Settings (notification switches only)")
@@ -64,12 +61,11 @@ for i, g in enumerate(GROUPS):
     if i:
         time.sleep(15)  # getChatHistory is rate-limited (got HTTP 429 back-to-back)
     hist = call("POST", "getChatHistory", json={"chatId": g, "count": 30}) or []
-    ours = [m for m in hist if m.get("type") == "outgoing"]
-    print(f"  group {mask(g)}: {len(hist)} recent messages, {len(ours)} sent by us")
+    ours = [m for m in hist if m.get("type") == "outgoing" and m.get("sendByApi")]
+    print(f"  group {mask(g)}: {len(hist)} recent messages, {len(ours)} sent by the bot")
     for m in ours[:3]:
         extra = {k: v for k, v in m.items() if re.search(r"status|read|deliver", k, re.I)}
-        print(f"    {m.get('timestamp')}  {m.get('typeMessage')}  status={m.get('statusMessage')}  "
-              f"{json.dumps(extra)}  | {first_line(m)}")
+        print(f"    {m.get('timestamp')}  {m.get('typeMessage')}  status={m.get('statusMessage')}  {json.dumps(extra)}")
         if newest is None or m.get("timestamp", 0) > newest[1].get("timestamp", 0):
             newest = (g, m)
     if ours:
@@ -100,7 +96,7 @@ for _ in range(50):
                   "has sender" if any(k in body for k in ("senderData", "participant", "sender")) else "no sender")] += 1
         if statuses.total() == 1:
             print(f"  sample status notification keys: {sorted(body)}")
-            print(f"  sample (masked): {mask(json.dumps(body))[:600]}")
+            print(f"  sample: status={body.get('status')} chat={mask(body.get('chatId'))} sendByApi={body.get('sendByApi')}")
     if drain:
         call("DELETE", "deleteNotification", suffix=f"/{n['receiptId']}")
     else:
