@@ -1,0 +1,32 @@
+name: Read-receipt probe (read-only)
+
+# Manual only. Queries Green-API to see whether we can count readers of our group
+# posts. Sends nothing to WhatsApp.
+on:
+  workflow_dispatch:
+    inputs:
+      drain:
+        description: "Also read & delete queued Green-API notifications (affects only Green-API's queue)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Probe Green-API (read-only)
+        env:
+          GREEN_API_INSTANCE: ${{ secrets.GREEN_API_INSTANCE }}
+          GREEN_API_TOKEN: ${{ secrets.GREEN_API_TOKEN }}
+          GREEN_API_URL: ${{ secrets.GREEN_API_URL }}
+          WA_GROUP_IDS: ${{ secrets.WA_GROUP_IDS }}
+          DRAIN: ${{ inputs.drain && '1' || '' }}
+        run: python tools/receipts_probe.py
