@@ -2,8 +2,8 @@ name: Announce events on WhatsApp
 
 on:
   schedule:
-    - cron: "47 5 * * 0"   # Sun 11:17 IST - week-ahead post
-    - cron: "7 14 * * 4"   # Thu 19:37 IST - teaching post (keep both in sync with SEND_DAYS in digest.py)
+    - cron: "13 4 * * 0"   # Sun 09:43 IST - week-ahead post
+    - cron: "47 13 * * 4"   # Thu 19:17 IST - teaching post (keep both in sync with SEND_DAYS in digest.py)
   workflow_dispatch:
     inputs:
       dry_run:

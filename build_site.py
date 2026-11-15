@@ -165,7 +165,7 @@ def build(weeks=4):
         sched_rows.append(f"""
             <details class="row sched{' past' if past or done else ''}">
               <summary><span class="sdate">{d:%a %d %b %Y}</span>{occ}{state}<span class="stitle">{html.escape(item["title"])}</span></summary>
-              {bubble(tb.format_post(item), "19:37", True)}
+              {bubble(tb.format_post(item), "19:17", True)}
             </details>""")
     unscheduled = len(bank) - len({s for s, _ in schedule.values()})
     last = max(schedule) if schedule else today_iso
@@ -320,7 +320,7 @@ footer {{ color: var(--muted); font-size: .8rem; margin-top: 24px; text-align: c
   </section>
 
   <section>
-    <h2>Teaching video schedule · Thursdays 19:37</h2>
+    <h2>Teaching video schedule · Thursdays 19:17</h2>
     {teach_html}
   </section>
 

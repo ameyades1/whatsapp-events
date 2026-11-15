@@ -1,7 +1,7 @@
 """Twice-weekly WhatsApp posts: the fixed logo banner (assets/banner.png) + a caption.
 
-  Sunday 11:17 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
-  Thursday 19:37 IST  "teaching" one message from wa-messages/ (see teaching.py),
+  Sunday 09:43 IST    "weekly"   full list of events starting Mon–Sun of the coming week.
+  Thursday 19:17 IST  "teaching" one message from wa-messages/ (see teaching.py),
                                  sent as text so the YouTube preview shows.
 
 Each post is recorded in sent-log.csv (kind weekly/teaching), plus one "included"
@@ -37,7 +37,7 @@ CAPTION_LIMIT = 1000          # WhatsApp caption limit is ~1024; keep a margin
 
 # weekday -> post kind; keep in sync with the crons in .github/workflows/announce.yml
 SEND_DAYS = {6: "weekly", 3: "teaching"}
-SEND_TIME = {"weekly": "11:17", "teaching": "19:37"}
+SEND_TIME = {"weekly": "09:43", "teaching": "19:17"}
 LABEL = {"weekly": "Events this week", "teaching": "Teaching"}
 
 
