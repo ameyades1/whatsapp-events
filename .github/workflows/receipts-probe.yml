@@ -1,12 +1,16 @@
 name: Read-receipt probe (read-only)
 
 # Manual only. Queries Green-API to see whether we can count readers of our group
-# posts. Sends nothing to WhatsApp.
+# posts. Sends nothing to WhatsApp. Optionally turns on status notifications.
 on:
   workflow_dispatch:
     inputs:
       drain:
         description: "Also read & delete queued Green-API notifications (affects only Green-API's queue)"
+        type: boolean
+        default: false
+      enable_status:
+        description: "Turn on outgoing message status notifications in Green-API (one-time settings change)"
         type: boolean
         default: false
 
@@ -29,4 +33,5 @@ jobs:
           GREEN_API_URL: ${{ secrets.GREEN_API_URL }}
           WA_GROUP_IDS: ${{ secrets.WA_GROUP_IDS }}
           DRAIN: ${{ inputs.drain && '1' || '' }}
+          ENABLE_STATUS: ${{ inputs.enable_status && '1' || '' }}
         run: python tools/receipts_probe.py

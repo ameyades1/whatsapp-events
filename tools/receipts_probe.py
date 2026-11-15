@@ -7,6 +7,8 @@ Sends nothing to WhatsApp. It reads:
   4. pending notifications (receiveNotification), summarised by type/status.
 Notifications are left in the queue unless DRAIN=1, which deletes the ones it
 reads (that only affects Green-API's queue, not WhatsApp).
+ENABLE_STATUS=1 additionally turns on outgoing message status notifications
+(setSettings outgoingWebhook=yes) - the only setting it can change.
 
 The repo is public, so its Actions logs are too: group ids and phone numbers are
 masked and message text is cut to the first line.
@@ -40,6 +42,13 @@ def first_line(m):
     text = m.get("textMessage") or m.get("caption") or m.get("typeMessage") or ""
     return text.strip().splitlines()[0][:60] if text.strip() else ""
 
+
+if os.environ.get("ENABLE_STATUS") == "1":
+    # The one setting change this script can make: queue status notifications
+    # (sent/delivered/read) for messages we send. Nothing else is touched.
+    print("== 0. Turning on outgoing message status notifications")
+    print(f"  setSettings -> {call('POST', 'setSettings', json={'outgoingWebhook': 'yes'})}")
+    print()
 
 print("== 1. Settings (notification switches only)")
 settings = call("GET", "getSettings")
